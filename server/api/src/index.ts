@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server'
 
 import { createApp } from './app.ts'
-import { type RunService } from './contracts.ts'
+import { type RunService } from './ports.ts'
 
 const unavailableRuns: RunService = {
   createRun: async () => ({ kind: 'unavailable' }),

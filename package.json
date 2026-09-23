@@ -15,6 +15,7 @@
     "typecheck": "pnpm -r --parallel typecheck",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
+    "test": "pnpm -r --parallel test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "start": "pnpm build && electron .",

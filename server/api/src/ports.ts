@@ -1,3 +1,4 @@
+// TODO: replace these temporary API-facing shapes with @adamant/contract once it lands.
 export type RunStatus = 'queued'
 
 export interface SessionPrincipal {
@@ -7,6 +8,15 @@ export interface SessionPrincipal {
 export interface RunRecord {
   id: string
   actorUserId: string
+  installationId: string
+  repositoryId: string
+  baseSha: string
+  targetBranch: string
+  status: RunStatus
+}
+
+export interface PublicRun {
+  id: string
   installationId: string
   repositoryId: string
   baseSha: string

@@ -8,8 +8,9 @@ import {
   type CreateRunResult,
   type ReadRunResult,
   type RunRecord,
-} from './contracts.ts'
+} from './ports.ts'
 
+const runId = '4da8e1b3-2b0d-4e5a-9b6f-72d8718d6d4f'
 const validBody = {
   installationId: '123',
   repositoryId: '456',
@@ -18,13 +19,18 @@ const validBody = {
 }
 
 const run: RunRecord = {
-  id: 'run_123',
+  id: runId,
   actorUserId: 'user_1',
   installationId: '123',
   repositoryId: '456',
   baseSha: 'a'.repeat(40),
   targetBranch: 'main',
   status: 'queued',
+}
+
+interface ReadCall {
+  runId: string
+  actorUserId: string
 }
 
 function requestBody(body: unknown, idempotencyKey = 'request-1'): RequestInit {
@@ -44,10 +50,12 @@ function dependencies(
     createResult?: CreateRunResult
     readResult?: ReadRunResult
     commands?: CreateRunCommand[]
+    readCalls?: ReadCall[]
     authenticated?: boolean
   } = {},
 ): ApiDependencies {
   const commands = overrides.commands ?? []
+  const readCalls = overrides.readCalls ?? []
   return {
     authenticate: async (authorization) =>
       overrides.authenticated === false || authorization !== 'Bearer session'
@@ -58,7 +66,10 @@ function dependencies(
         commands.push(command)
         return overrides.createResult ?? { kind: 'created', run }
       },
-      readRun: async () => overrides.readResult ?? { kind: 'found', run },
+      readRun: async (requestedRunId, actorUserId) => {
+        readCalls.push({ runId: requestedRunId, actorUserId })
+        return overrides.readResult ?? { kind: 'found', run }
+      },
     },
   }
 }
@@ -71,15 +82,18 @@ describe('API', () => {
     assert.deepEqual(await response.json(), { status: 'ok' })
   })
 
-  it('rejects run creation without a valid session', async () => {
+  it('protects every run route with session middleware', async () => {
     const app = createApp(dependencies())
-    const response = await app.request('/runs', {
+    const createResponse = await app.request('/runs', {
       ...requestBody(validBody),
       headers: { 'Content-Type': 'application/json', 'Idempotency-Key': 'request-1' },
     })
+    const readResponse = await app.request(`/runs/${runId}`)
 
-    assert.equal(response.status, 401)
-    assert.deepEqual(await response.json(), { error: { code: 'unauthorized' } })
+    assert.equal(createResponse.status, 401)
+    assert.equal(readResponse.status, 401)
+    assert.deepEqual(await createResponse.json(), { error: { code: 'unauthorized' } })
+    assert.deepEqual(await readResponse.json(), { error: { code: 'unauthorized' } })
   })
 
   it('creates a queued run with trusted identity and exact source data', async () => {
@@ -92,7 +106,7 @@ describe('API', () => {
     assert.equal(response.status, 202)
     assert.deepEqual(await response.json(), {
       run: {
-        id: 'run_123',
+        id: runId,
         installationId: '123',
         repositoryId: '456',
         baseSha: 'a'.repeat(40),
@@ -151,19 +165,60 @@ describe('API', () => {
     assert.deepEqual(await response.json(), { error: { code: 'invalid_idempotency_key' } })
   })
 
-  it('rejects malformed identifiers, SHAs and branch names', async () => {
+  it('validates each create-run field independently', async () => {
+    for (const [field, value] of [
+      ['installationId', '0'],
+      ['repositoryId', '01'],
+      ['baseSha', 'main'],
+      ['targetBranch', '../main'],
+    ] as const) {
+      const response = await createApp(dependencies()).request(
+        '/runs',
+        requestBody({ ...validBody, [field]: value }),
+      )
+
+      assert.equal(response.status, 400, field)
+      assert.deepEqual(await response.json(), { error: { code: 'invalid_request' } }, field)
+    }
+  })
+
+  it('rejects database ids outside the positive int64 range', async () => {
+    for (const value of ['9223372036854775808', '1'.repeat(400)]) {
+      const response = await createApp(dependencies()).request(
+        '/runs',
+        requestBody({ ...validBody, installationId: value }),
+      )
+
+      assert.equal(response.status, 400, value)
+    }
+  })
+
+  it('rejects branch names that git treats as invalid or option-like', async () => {
+    for (const targetBranch of [
+      '-foo',
+      '--upload-pack=x',
+      '.hidden',
+      'foo/.bar',
+      'foo.lock/bar',
+      `a${String.fromCharCode(0x7f)}b`,
+    ]) {
+      const response = await createApp(dependencies()).request(
+        '/runs',
+        requestBody({ ...validBody, targetBranch }),
+      )
+
+      assert.equal(response.status, 400, targetBranch)
+    }
+  })
+
+  it('rejects create-run bodies larger than 16 KiB', async () => {
     const response = await createApp(dependencies()).request(
       '/runs',
-      requestBody({
-        installationId: 123,
-        repositoryId: '0',
-        baseSha: 'main',
-        targetBranch: '../main',
-      }),
+      requestBody({ ...validBody, padding: 'x'.repeat(17 * 1024) }),
     )
 
-    assert.equal(response.status, 400)
-    assert.deepEqual(await response.json(), { error: { code: 'invalid_request' } })
+    assert.equal(response.status, 413)
+    assert.deepEqual(await response.json(), { error: { code: 'payload_too_large' } })
   })
 
   it('rejects client-provided status and validation claims', async () => {
@@ -176,15 +231,16 @@ describe('API', () => {
     assert.deepEqual(await response.json(), { error: { code: 'invalid_request' } })
   })
 
-  it('returns only runs authorized for the session user', async () => {
-    const response = await createApp(dependencies()).request('/runs/run_123', {
+  it('passes the run id and session user to the authorization boundary', async () => {
+    const readCalls: ReadCall[] = []
+    const response = await createApp(dependencies({ readCalls })).request(`/runs/${runId}`, {
       headers: { Authorization: 'Bearer session' },
     })
 
     assert.equal(response.status, 200)
     assert.deepEqual(await response.json(), {
       run: {
-        id: 'run_123',
+        id: runId,
         installationId: '123',
         repositoryId: '456',
         baseSha: 'a'.repeat(40),
@@ -192,11 +248,22 @@ describe('API', () => {
         status: 'queued',
       },
     })
+    assert.deepEqual(readCalls, [{ runId, actorUserId: 'user_1' }])
+  })
+
+  it('rejects malformed run ids before querying the service', async () => {
+    const readCalls: ReadCall[] = []
+    const response = await createApp(dependencies({ readCalls })).request('/runs/run_123', {
+      headers: { Authorization: 'Bearer session' },
+    })
+
+    assert.equal(response.status, 400)
+    assert.deepEqual(readCalls, [])
   })
 
   it('does not reveal whether another user owns a run', async () => {
     const response = await createApp(dependencies({ readResult: { kind: 'not_found' } })).request(
-      '/runs/run_123',
+      `/runs/${runId}`,
       { headers: { Authorization: 'Bearer session' } },
     )
 
@@ -210,7 +277,7 @@ describe('API', () => {
     ).request('/runs', requestBody(validBody))
     const readResponse = await createApp(
       dependencies({ readResult: { kind: 'unavailable' } }),
-    ).request('/runs/run_123', { headers: { Authorization: 'Bearer session' } })
+    ).request(`/runs/${runId}`, { headers: { Authorization: 'Bearer session' } })
 
     assert.equal(createResponse.status, 503)
     assert.equal(readResponse.status, 503)
