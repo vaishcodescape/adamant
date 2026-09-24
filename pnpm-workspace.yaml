@@ -1,3 +1,4 @@
 packages:
   - 'electron/*'
   - 'server/*'
+  - 'core/*'

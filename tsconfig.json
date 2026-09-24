@@ -5,6 +5,7 @@
     { "path": "./electron/main" },
     { "path": "./electron/preload" },
     { "path": "./electron/adamant" },
-    { "path": "./server/api" }
+    { "path": "./server/api" },
+    { "path": "./core/agent" }
   ]
 }
