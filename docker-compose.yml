@@ -27,6 +27,9 @@ services:
     environment:
       PORT: '8787'
       DATABASE_URL: postgres://adamant:adamant@postgres:5432/adamant
+      # The API verifies the HMAC and enqueues. It gets no GitHub App key.
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+      ADAMANT_SESSION_SECRET: ${ADAMANT_SESSION_SECRET:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -38,6 +41,19 @@ services:
       dockerfile: Dockerfile.worker
     environment:
       DATABASE_URL: postgres://adamant:adamant@postgres:5432/adamant
+      # Model calls run in this process only. The API service does not receive the key.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-6}
+      # The agent mints an installation token per call from these.
+      GITHUB_APP_ID: ${GITHUB_APP_ID:-}
+      GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:-}
+      ADAMANT_SANDBOX_IMAGE: ${ADAMANT_SANDBOX_IMAGE:-node:22-bookworm-slim}
+      ADAMANT_SANDBOX_INSTALL: ${ADAMANT_SANDBOX_INSTALL:-npm ci --no-audit --no-fund}
+      ADAMANT_SANDBOX_TEST: ${ADAMANT_SANDBOX_TEST:-npm test}
+    # The sandbox starts one container per candidate, so the worker needs a
+    # Docker socket. Nothing is mounted into the sandbox container itself.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       postgres:
         condition: service_healthy
