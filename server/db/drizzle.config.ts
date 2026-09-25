@@ -8,7 +8,8 @@ if (!url) {
 
 export default defineConfig({
   dialect: 'postgresql',
-  schema: './src/schema/index.ts',
-  out: './drizzle',
+  // drizzle-kit resolves these from server/, where the db:* scripts run.
+  schema: './db/schema/index.ts',
+  out: './db/drizzle',
   dbCredentials: { url },
 })

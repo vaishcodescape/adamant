@@ -15,17 +15,19 @@ Wiring: [backend-architecture.md](backend-architecture.md). Tables:
 
 ## Pieces
 
-| Piece             | Package                   | Done when                                                  |
-| ----------------- | ------------------------- | ---------------------------------------------------------- |
-| **1. Database**   | `@adamant/db` + Compose   | migrate; insert a `queued` run                             |
-| **2. LangGraph**  | `@adamant/agent` + worker | worker `invoke`s, `thread_id = run_id`                     |
-| **3. GitHub App** | `@adamant/api`            | App installed; failed CI starts a run; merges are recorded |
-| **4. Healing**    | tools + sandbox + OpenAI  | red CI → sandbox pass → our PR **merged**                  |
-| **5. CLI**        | `@adamant/cli`            | `watch` stays on the **hosted** API and shows runs/merges  |
+| Piece             | Where                                      | Done when                                                  |
+| ----------------- | ------------------------------------------ | ---------------------------------------------------------- |
+| **1. Database**   | `server/db` in `@adamant/server` + Compose | migrate; insert a `queued` run                             |
+| **2. LangGraph**  | `server/agent` + `server/worker`           | worker `invoke`s, `thread_id = run_id`                     |
+| **3. GitHub App** | `server/api`                               | App installed; failed CI starts a run; merges are recorded |
+| **4. Healing**    | tools + `server/sandbox` + OpenAI          | red CI → sandbox pass → our PR **merged**                  |
+| **5. CLI**        | `server/cli` (not created)                 | `watch` stays on the **hosted** API and shows runs/merges  |
 
-API does **not** import the graph. No `/agent` route.
+`server/api` does **not** import `server/agent`. No `/agent` route.
 
-Already done: Electron shell, Hono `/health`, LangGraph packages, this repo’s CI.
+Already done: Electron shell, `@adamant/server` (API, schema, worker, agent
+graph, sandbox), this repo’s CI. Not done: the worker calling the graph, and
+the CLI.
 
 ## Tasks
 
@@ -34,8 +36,8 @@ Already done: Electron shell, Hono `/health`, LangGraph packages, this repo’s 
 | ID  | Who | Task                                                                   | Done when                                  |
 | --- | --- | ---------------------------------------------------------------------- | ------------------------------------------ |
 | 1.1 | R1  | Compose Postgres + `DATABASE_URL`                                      | `docker compose up -d postgres` is healthy |
-| 1.2 | R2  | `@adamant/db` tables in [database.md](database.md), no `jobs`          | migrate twice is a no-op                   |
-| 1.3 | R1  | `@adamant/worker` + graphile-worker                                    | a no-op `graph_step` is claimed            |
+| 1.2 | R2  | `server/db` tables in [database.md](database.md), no `jobs`            | migrate twice is a no-op                   |
+| 1.3 | R1  | `server/worker` + graphile-worker                                      | a no-op `graph_step` is claimed            |
 | 1.4 | R1  | Host API + worker (Compose or a VM) so GitHub and the CLI can reach it | public HTTPS URL stays up                  |
 
 ### 2. LangGraph

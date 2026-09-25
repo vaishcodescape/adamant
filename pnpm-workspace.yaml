@@ -1,6 +1,5 @@
 packages:
   - 'electron/*'
-  - 'server/*'
-  - 'core/*'
+  - 'server'
 allowBuilds:
   electron-winstaller: true

@@ -35,9 +35,8 @@ pnpm install
 
 ```
 electron/            desktop shell
-server/api           Hono API (webhooks + CLI)
+server/              API, worker, agent, sandbox (one package)
 server/cli           adamant watch (create)
-core/agent           LangGraph library
 scripts/dev.mjs      Vite + watchers + Electron
 ```
 

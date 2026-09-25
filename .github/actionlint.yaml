@@ -1,0 +1,6 @@
+# CodeRabbit settings live in .github/workflows/.coderabbit.yaml. That file
+# is not a workflow. actionlint still opens every .yaml file in this directory.
+paths:
+  .github/workflows/.coderabbit.yaml:
+    ignore:
+      - '.*'

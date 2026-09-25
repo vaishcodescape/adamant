@@ -33,7 +33,7 @@ flowchart TB
 ```
 
 The API authenticates and ACKs. It does **not** run models or Docker. Workers
-**import** `@adamant/agent`. There is no `/agent` HTTP route.
+**import** `server/agent`. There is no `/agent` HTTP route.
 
 ## Phase 1 vs later
 
@@ -125,19 +125,19 @@ in-process.
 
 | Task           | Process        | Does                                                   |
 | -------------- | -------------- | ------------------------------------------------------ |
-| `graph_step`   | Graph worker   | `import` `@adamant/agent` and `invoke` the LangGraph   |
+| `graph_step`   | Graph worker   | `import` `server/agent` and `invoke` the LangGraph     |
 | `sandbox_exec` | Sandbox worker | Start the container; write `sandbox_results`; no model |
 
-`@adamant/agent` (`core/agent`) has no `listen()` and must not import Hono.
+`server/agent` has no `listen()` and must not import Hono.
 
 ```mermaid
 flowchart LR
-  User[App webhook or POST /runs] --> Api["@adamant/api"]
+  User[App webhook or POST /runs] --> Api["server/api"]
   Api -->|insert run + enqueue graph_step| Pg[(PostgreSQL)]
   Api -->|202 runId| User
   Cli[adamant CLI] -->|GET| Api
-  Pg -->|claim job| Worker["@adamant/worker"]
-  Worker -->|invoke thread_id = run_id| Agent["@adamant/agent"]
+  Pg -->|claim job| Worker["server/worker"]
+  Worker -->|invoke thread_id = run_id| Agent["server/agent"]
   Agent --> OpenAI[OpenAI]
   Agent --> Tools[git / GitHub / Actions]
   Agent -->|enqueue sandbox_exec| Pg
@@ -146,7 +146,7 @@ flowchart LR
 ```
 
 ```ts
-import { compileHealGraph } from '@adamant/agent'
+import { compileHealGraph } from '../agent/index.ts'
 
 await compileHealGraph(deps).invoke({ runId }, { configurable: { thread_id: runId } })
 ```

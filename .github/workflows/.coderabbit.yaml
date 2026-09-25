@@ -1,0 +1,127 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+# This file is the CodeRabbit configuration. The repo-root .coderabbit.yaml
+# is a symlink to it. CodeRabbit reviews every pull request against the rules
+# in AGENTS.md. The path_instructions below repeat the invariants that are
+# cheap to break and expensive to notice: the Electron sandbox boundary and
+# the agent's push, merge and token rules.
+language: en-US
+
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  sequence_diagrams: true
+  poem: false
+
+  # Generated output and the lockfile carry no review signal.
+  path_filters:
+    - '!pnpm-lock.yaml'
+    - '!**/dist/**'
+    - '!release/**'
+    - '!node_modules/**'
+    - '!**/*.tsbuildinfo'
+
+  path_instructions:
+    - path: '**/*.{ts,tsx,mts}'
+      instructions: >-
+        TypeScript strict mode with noUncheckedIndexedAccess and
+        exactOptionalPropertyTypes. Flag any use of `any`, a non-null `!`
+        assertion or `@ts-ignore` that works around the compiler instead of
+        fixing the type. Type-only imports must use the inline form
+        (`import { type AppInfo } from '@adamant/shared'`). Exports are named;
+        default exports only where a tool requires them, such as Vite configs.
+        Comments explain why, not what.
+
+    - path: 'electron/**'
+      instructions: >-
+        The renderer is untrusted. Reject anything that sets
+        contextIsolation to false, nodeIntegration to true or sandbox to
+        false, exposes `ipcRenderer`, raw IPC event objects or arbitrary
+        channel names to the renderer, or loosens the Content-Security-Policy
+        in electron/adamant/index.html. Every bridge method must be explicit
+        and typed in @adamant/shared. Main-process IPC handlers must validate
+        their arguments; the renderer can send anything. The renderer never
+        calls the backend directly and the session token stays in main.
+
+    - path: 'server/api/**'
+      instructions: >-
+        server/api must not import server/agent. Webhook handlers verify
+        the GitHub signature before acting on a payload. GitHub installation
+        tokens are minted per call and never stored, logged or returned to a
+        client.
+
+    - path: 'server/agent/**'
+      instructions: >-
+        The agent force-pushes nowhere and pushes only to
+        refs/heads/adamant/{run_id}. It may merge only the pull request for
+        its own run, and only after a passing sandbox_results row: flag any
+        path that opens a PR or merges without that check. Every tool is
+        allowlisted and logged to tool_invocations and audit_events with the
+        run_id, and unknown tool calls must fail closed. Installation tokens
+        never reach checkpoints, prompts, logs or the sandbox.
+
+    - path: 'server/worker/**'
+      instructions: >-
+        This is the run path. Check the change against
+        docs/performance.md: no avoidable round trips, no serial work that
+        could overlap, and no unbounded retries or waits.
+
+    - path: 'server/db/**'
+      instructions: >-
+        Schema changes need a matching migration and should stay consistent
+        with docs/database.md. Flag destructive column or table changes that
+        arrive without a migration path.
+
+    - path: '.github/workflows/*.{yml,yaml}'
+      instructions: >-
+        Workflows declare least-privilege `permissions`, pin actions to a
+        version, and must not expose secrets to code from a fork.
+
+  # Non-draft pull requests into main, including later commits on that PR.
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    drafts: false
+    base_branches:
+      - main
+
+  tools:
+    # The repo lints with ESLint and formats with Prettier; Biome would only
+    # report conflicting opinions.
+    biome:
+      enabled: false
+    eslint:
+      enabled: true
+      config_file: eslint.config.mjs
+    gitleaks:
+      enabled: true
+    semgrep:
+      enabled: true
+    actionlint:
+      enabled: true
+    hadolint:
+      enabled: true
+    yamllint:
+      enabled: true
+    markdownlint:
+      enabled: true
+    shellcheck:
+      enabled: true
+    github-checks:
+      enabled: true
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  learnings:
+    scope: auto
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - '**/AGENTS.md'
+      - '**/CLAUDE.md'
+      - 'CONTRIBUTING.md'
+      - 'docs/**/*.md'
+      - '.agents/skills/**/*.md'

@@ -21,17 +21,18 @@ Read before larger changes:
 
 ```
 electron/           desktop shell
-server/api          @adamant/api      Hono (webhooks + CLI)
-server/db           @adamant/db       Drizzle (create)
-server/worker       @adamant/worker   graphile-worker (create)
-server/cli          @adamant/cli      monitor (create)
-core/agent          @adamant/agent    LangGraph library
-core/contract       @adamant/contract zod (create)
+server/             @adamant/server   one package.json and one tsconfig.json
+  api/              Hono (webhooks + CLI)
+  db/               Drizzle; drizzle.config.ts lives here
+  worker/           graphile-worker
+  agent/            LangGraph; must not import Hono
+  sandbox/          Docker runner
+  cli/              monitor (create)
 docs/               design docs
 ```
 
-See [docs/tech-stack.md](docs/tech-stack.md). `@adamant/api` does not import
-`@adamant/agent`.
+See [docs/tech-stack.md](docs/tech-stack.md). `server/api` does not import
+`server/agent`.
 
 ## Commands
 

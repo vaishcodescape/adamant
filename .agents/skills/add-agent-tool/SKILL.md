@@ -8,7 +8,7 @@ description: Add or change a tool the Adamant agent can call (git, GitHub API, G
 The model never runs commands directly. It calls tools, and every tool goes through the gateway,
 which checks the allowlist, logs the call and scopes it to one run and one repo. The rules come
 from [docs/backend-architecture.md](../../../docs/backend-architecture.md#agent-tools). The code
-will live in `core/agent` (see [docs/tech-stack.md](../../../docs/tech-stack.md#layout)).
+will live in `server/agent` (see [docs/tech-stack.md](../../../docs/tech-stack.md#layout)).
 
 ## Before writing it
 
