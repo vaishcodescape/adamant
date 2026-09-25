@@ -5,8 +5,8 @@ What we chose and why. Phase 1 work: [phase-1-tasks.md](phase-1-tasks.md). Desig
 
 `@adamant/server` already has the Hono API (health, runs, activity, GitHub
 webhooks), Drizzle schema, a graphile-worker process, the LangGraph code in
-`server/agent`, and a Docker sandbox runner. The worker's `graph_step` is
-still a no-op: it does not invoke the graph. The CLI does not exist yet.
+`server/agent`, and a Docker sandbox runner. The worker's `graph_step` invokes
+`compileOpenAiHealGraph` with `thread_id = run_id`. The CLI does not exist yet.
 
 ## TypeScript everywhere
 

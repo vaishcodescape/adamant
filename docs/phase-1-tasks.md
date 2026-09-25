@@ -26,8 +26,10 @@ Wiring: [backend-architecture.md](backend-architecture.md). Tables:
 `server/api` does **not** import `server/agent`. No `/agent` route.
 
 Already done: Electron shell, `@adamant/server` (API, schema, worker, agent
-graph, sandbox), this repo’s CI. Not done: the worker calling the graph, and
-the CLI.
+graph, sandbox), this repo’s CI. A failed `workflow_run` now inserts a
+`queued` run and enqueues `graph_step`; the worker claims it and runs the
+heal loop end to end (log triage → diagnose → patch → sandbox → PR → merge)
+against the GitHub App. Not done: the CLI, `POST /runs`, and `/activity` SSE.
 
 ## Tasks
 
@@ -46,7 +48,7 @@ the CLI.
 | --- | ----- | -------------------------------------------------------------------------- | ---------------------------------------------- |
 | 2.1 | R10   | `@adamant/contract` zod                                                    | API, worker, CLI share types                   |
 | 2.2 | R7    | Graph stubs: retrieve → diagnose → plan → patch → sandbox → openPr → merge | statuses update                                |
-| 2.3 | R1+R7 | Worker `compileHealGraph(deps).invoke(...)`                                | webhook or `POST /runs` reaches `running`      |
+| 2.3 | R1+R7 | Worker `compileOpenAiHealGraph(...).invoke(...)`                           | webhook or `POST /runs` reaches `running`      |
 | 2.4 | R7    | OpenAI in the **worker**                                                   | key not in CLI, Electron, checkpoints, or logs |
 
 ### 3. GitHub App (the plugin)

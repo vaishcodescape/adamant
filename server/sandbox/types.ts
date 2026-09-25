@@ -13,6 +13,11 @@ export interface SandboxExecutionOptions {
   timeoutMs?: number
   /** Docker image (default: "node:22-bookworm-slim") */
   image?: string
+  /**
+   * Docker network (default: "none"). Tests always run with "none"; an
+   * install step may ask for a network, and nothing else may.
+   */
+  network?: string
   /** Memory cap (default: "1g") */
   memoryLimit?: string
   /** CPU cap (default: "1.0") */

@@ -146,9 +146,12 @@ flowchart LR
 ```
 
 ```ts
-import { compileHealGraph } from '../agent/index.ts'
+import { compileOpenAiHealGraph } from '../agent/index.ts'
 
-await compileHealGraph(deps).invoke({ runId }, { configurable: { thread_id: runId } })
+await compileOpenAiHealGraph({ git, sandbox, recorder }, { checkpointer }).invoke(
+  { runId, repository, baseSha },
+  { configurable: { thread_id: runId } },
+)
 ```
 
 `thread_id = run_id`. `OPENAI_API_KEY` lives in the worker environment, never
@@ -187,8 +190,9 @@ runs, and **`merge_pull_request`** for this run only.
 
 `merge_pull_request` is allowed only when all of these hold:
 
-- latest `sandbox_results.verdict` is `pass`
-- `runs.pr_number` is set and matches the PR being merged
+- latest `sandbox_results.verdict` is `pass`, read back from the table, not
+  from graph state
+- the run's `pr_publications` row is set and matches the PR being merged
 - the PR head is `refs/heads/adamant/{run_id}` on the bound repo
 - squash merge (or the repo's one allowed method) — not a merge of some
   other branch
