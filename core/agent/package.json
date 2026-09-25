@@ -10,7 +10,8 @@
     }
   },
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --experimental-strip-types --test src/**/*.test.ts"
   },
   "dependencies": {
     "@langchain/core": "^1.2.12",
