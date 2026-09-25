@@ -54,6 +54,7 @@ export class DockerSandbox {
     const memoryLimit = options.memoryLimit ?? '1g'
     const cpuLimit = options.cpuLimit ?? '1.0'
     const pidsLimit = options.pidsLimit ?? '100'
+    const network = options.network ?? 'none'
     const runId = options.runId ?? 'run'
     const user = options.user ?? 'node'
     const containerName = `adamant-sb-${runId}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
@@ -65,7 +66,7 @@ export class DockerSandbox {
       '--name',
       containerName,
       '--network',
-      'none',
+      network,
       '--cap-drop',
       'ALL',
       '--security-opt',

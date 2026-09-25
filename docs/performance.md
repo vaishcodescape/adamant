@@ -40,7 +40,7 @@ per run. Tests still run with the network off.
 
 Official `openai` SDK, `OPENAI_API_KEY` in the worker only.
 
-- One model (`OPENAI_MODEL`, default GPT-5). Effort `low` to sort the
+- One model (`OPENAI_MODEL`, default GPT-6). Effort `low` to sort the
   failure, `high` to write the patch.
 - Keep the prompt prefix stable (tools, system, repo). Put run IDs and log
   lines after it. Check `usage.prompt_tokens_details.cached_tokens`.
