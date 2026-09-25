@@ -1,0 +1,5 @@
+{
+  "name": "@adamant/tests",
+  "private": true,
+  "type": "module"
+}

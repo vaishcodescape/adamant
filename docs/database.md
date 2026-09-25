@@ -39,52 +39,50 @@ Run state lives in `runs`. Queue state lives in graphile-worker's own schema. Do
 
 ## Package layout
 
-`@adamant/api` must not be the home of the schema. The worker would then import the Hono package.
-
-Add `server/db` as `@adamant/db`. API and worker depend on it. It must not import `hono` or
-`@adamant/agent`.
+Schema, API, worker, agent, and sandbox share one package, `@adamant/server`
+(`server/package.json`). `server/db` is a directory in that package. It must
+not import `hono` or `server/agent`. `server/api` must not import
+`server/agent` either.
 
 ```
-server/db/                 @adamant/db
+server/                      @adamant/server
   package.json
   tsconfig.json
-  drizzle.config.ts
-  src/
-    client.ts              getDb(DATABASE_URL) — one Pool
+  api/                       Hono
+  worker/                    graphile-worker
+  agent/                     LangGraph
+  sandbox/                   docker CLI runner
+  db/
+    drizzle.config.ts
+    client.ts                createDb(DATABASE_URL) — one Pool
     schema/
-      index.ts             re-export every table + enums
-      enums.ts             run_status, hitl_decision, sandbox_verdict, …
-      users.ts
-      sessions.ts
-      installations.ts
-      repo-bindings.ts
-      webhook-deliveries.ts
+      index.ts               re-export every table
+      users.ts               users, sessions
+      github.ts              installations, repositories
+      webhooks.ts
       runs.ts
-      sandbox-results.ts
-      hitl-decisions.ts
-      tool-invocations.ts
-      audit-events.ts
-  drizzle/                 generated SQL — commit this
+      sandbox.ts
+      triage.ts
+      hitl.ts
+      publication.ts
+      audit.ts
+    drizzle/                 generated SQL — commit this
 ```
 
-`server/*` is already in `pnpm-workspace.yaml`. After creating the package:
+`server` is the backend package in `pnpm-workspace.yaml`.
 
-```bash
-pnpm --filter @adamant/db add drizzle-orm pg
-pnpm --filter @adamant/db add -D drizzle-kit @types/pg
-pnpm --filter @adamant/api add @adamant/db@workspace:*
-```
+Scripts on `@adamant/server`:
 
-Scripts on `@adamant/db` (and/or the repo root):
+| Script        | Command                                                         |
+| ------------- | --------------------------------------------------------------- |
+| `db:generate` | `drizzle-kit generate --config db/drizzle.config.ts`            |
+| `db:migrate`  | `drizzle-kit migrate --config db/drizzle.config.ts`             |
+| `db:studio`   | `drizzle-kit studio --config db/drizzle.config.ts` (local only) |
 
-| Script        | Command                           |
-| ------------- | --------------------------------- |
-| `db:generate` | `drizzle-kit generate`            |
-| `db:migrate`  | `drizzle-kit migrate`             |
-| `db:studio`   | `drizzle-kit studio` (local only) |
-
-`drizzle.config.ts` points at `src/schema/index.ts`, `drizzle/`, and `process.env.DATABASE_URL`.
-Fail closed if the URL is missing.
+`server/db/drizzle.config.ts` points at `db/schema/index.ts` and `db/drizzle`,
+resolved from `server/`. It reads `process.env.DATABASE_URL` and fails if the
+URL is missing. Run the scripts from the repo root with
+`pnpm --filter @adamant/server db:migrate`.
 
 ---
 
@@ -120,12 +118,12 @@ Env (`.env` is gitignored; commit `.env.example` at the repo root):
 DATABASE_URL=postgres://adamant:adamant@localhost:5432/adamant
 ```
 
-Do not put secrets in `server/api/.env` that are not needed for the API. One root `DATABASE_URL`
-is enough for local work.
+Do not give the API its own env file for secrets the worker also needs. One root
+`DATABASE_URL` is enough for local work.
 
 ```bash
 docker compose up -d postgres
-pnpm --filter @adamant/db db:migrate
+pnpm --filter @adamant/server db:migrate
 ```
 
 Done when `psql "$DATABASE_URL" -c '\dt'` lists the Adamant tables below.
@@ -394,7 +392,7 @@ write tokens into checkpoint state.
 ## Client rules
 
 ```ts
-// server/db/src/client.ts — sketch
+// server/db/client.ts — sketch
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import * as schema from './schema/index.ts'
@@ -408,7 +406,7 @@ export function createDb(url: string) {
 - One `Pool` per process (API process, worker process).
 - Read `DATABASE_URL` in the process entrypoint; pass it in. Do not import `process.env` from
   random schema files.
-- `core/agent` may take a `PostgresSaver` or a connection string from the worker. It still must
+- `server/agent` may take a `PostgresSaver` or a connection string from the worker. It still must
   not import Hono.
 
 ---
@@ -444,13 +442,13 @@ Implement these next to the writes, with tests. Do not encode them as triggers i
 
 ## First PRs
 
-1. Compose + `@adamant/db` + tables (no `jobs`). Migrate twice on a throwaway
-   volume.
-2. `@adamant/worker` + graphile-worker; a no-op `graph_step` claims a job.
+1. Compose + `server/db` in `@adamant/server` + tables (no `jobs`). Migrate
+   twice on a throwaway volume.
+2. `server/worker` + graphile-worker; a no-op `graph_step` claims a job.
 3. Seed one user + installation + eval `repo_bindings`. `POST /runs` and
    webhooks use that user as `actor_user_id`.
 
-`pnpm typecheck` must pass on `@adamant/db` as soon as the package exists.
+`pnpm typecheck` must pass on `@adamant/server`.
 A Postgres CI job can wait.
 
 ## Checklist

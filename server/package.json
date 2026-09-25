@@ -1,0 +1,31 @@
+{
+  "name": "@adamant/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --experimental-strip-types --watch api/index.ts",
+    "dev:worker": "node --experimental-strip-types --watch worker/index.ts",
+    "start": "node --experimental-strip-types api/index.ts",
+    "start:worker": "node --experimental-strip-types worker/index.ts",
+    "test": "node --experimental-strip-types --test ../tests/api/*.test.ts ../tests/agent/*.test.ts ../tests/sandbox/*.test.ts ../tests/db/*.test.ts ../tests/worker/*.test.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "db:generate": "drizzle-kit generate --config db/drizzle.config.ts",
+    "db:migrate": "drizzle-kit migrate --config db/drizzle.config.ts",
+    "db:studio": "drizzle-kit studio --config db/drizzle.config.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.1",
+    "@langchain/core": "^1.2.12",
+    "@langchain/langgraph": "^1.4.17",
+    "@langchain/langgraph-checkpoint-postgres": "^1.0.5",
+    "drizzle-orm": "^0.45.3",
+    "graphile-worker": "^0.18.0",
+    "hono": "^4.13.8",
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1",
+    "drizzle-kit": "^0.31.11"
+  }
+}

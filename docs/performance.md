@@ -49,7 +49,7 @@ Official `openai` SDK, `OPENAI_API_KEY` in the worker only.
 
 ## Later
 
-Local mode (same `@adamant/agent` on the developer's checkout; model calls
+Local mode (same `server/agent` on the developer's checkout; model calls
 through the API). Failure fingerprints. `/adamant approve`. Parallel
 candidate patches. `audit_events.started_at` / `ended_at` and a timing UI.
 

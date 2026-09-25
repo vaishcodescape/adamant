@@ -12,7 +12,8 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build": "pnpm --filter @adamant/shared typecheck && pnpm -r --parallel build",
-    "typecheck": "pnpm -r --parallel typecheck",
+    "typecheck": "pnpm -r --parallel typecheck && tsc --noEmit -p tests/tsconfig.json",
+    "test": "node --experimental-strip-types --test tests/api/*.test.ts tests/agent/*.test.ts tests/sandbox/*.test.ts tests/db/*.test.ts tests/worker/*.test.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",

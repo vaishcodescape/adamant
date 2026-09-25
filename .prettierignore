@@ -1,3 +1,6 @@
 dist
 release
 pnpm-lock.yaml
+# Symlink to .github/workflows/.coderabbit.yaml. Prettier rejects the
+# symlink path; format the workflows file instead.
+.coderabbit.yaml

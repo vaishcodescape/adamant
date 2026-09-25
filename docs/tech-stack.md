@@ -3,8 +3,10 @@
 What we chose and why. Phase 1 work: [phase-1-tasks.md](phase-1-tasks.md). Design:
 [backend-architecture.md](backend-architecture.md).
 
-Hono `/health` and LangGraph packages in `core/agent` already exist. The
-GitHub App, worker, CLI, and heal path do not.
+`@adamant/server` already has the Hono API (health, runs, activity, GitHub
+webhooks), Drizzle schema, a graphile-worker process, the LangGraph code in
+`server/agent`, and a Docker sandbox runner. The worker's `graph_step` is
+still a no-op: it does not invoke the graph. The CLI does not exist yet.
 
 ## TypeScript everywhere
 
@@ -26,7 +28,7 @@ checkpoints). If it gets in the way, drive the same loop from `runs.status`.
 | Job queue             | `graphile-worker`                                                   | Postgres `SKIP LOCKED` plus `LISTEN/NOTIFY` for instant pickup                                 |
 | Agent graph           | `@langchain/langgraph` + `@langchain/langgraph-checkpoint-postgres` | `thread_id = run_id`; Phase 1 does not `interrupt()` for a human                               |
 | LLM                   | [`openai`](https://www.npmjs.com/package/openai)                    | `OPENAI_API_KEY`; model and effort per step — see [performance.md](performance.md#model-calls) |
-| Sandbox               | `dockerode`                                                         | One container per job, as in the architecture doc                                              |
+| Sandbox               | `docker` CLI via `child_process`                                    | One container per job, as in the architecture doc                                              |
 
 `graphile-worker` manages its own job tables, so it replaces the hand-designed `jobs` table in the
 architecture doc. Run state stays in `runs`.
@@ -52,18 +54,18 @@ API. Electron can import `typeof app` later via `hc<ApiType>`.
 
 ```
 electron/           desktop shell (later Heal UI)
-server/
-  api/      @adamant/api       Hono: webhooks, runs, /activity
-  db/       @adamant/db        Drizzle — create
-  worker/   @adamant/worker    graphile-worker — create
-  cli/      @adamant/cli       monitor — create
-core/
-  agent/    @adamant/agent     LangGraph + tools; no HTTP
-  contract/ @adamant/contract  zod — create
+server/             @adamant/server — one package.json and one tsconfig.json
+  api/              Hono: webhooks, runs, /activity
+  db/               Drizzle; drizzle.config.ts lives here
+  worker/           graphile-worker
+  agent/            LangGraph + tools; no HTTP
+  sandbox/          Docker runner
+  cli/              monitor — create
 ```
 
-`server/*` and `core/*` are already in `pnpm-workspace.yaml`.
+`server` is the backend workspace package in `pnpm-workspace.yaml`.
 
-1. `core/agent` **must not import Hono.** The worker imports it.
+1. `server/agent` **must not import Hono.** The worker imports it. `server/api`
+   does not import `server/agent`.
 2. The CLI (and later Electron **main**) call the **hosted** API. Neither
    holds GitHub or OpenAI secrets.

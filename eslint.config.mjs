@@ -16,7 +16,7 @@ export default tseslint.config(
       'electron/main/**/*.ts',
       'electron/preload/**/*.ts',
       'server/**/*.ts',
-      'core/**/*.ts',
+      'tests/**/*.ts',
       'scripts/**/*.mjs',
       '**/vite.config.mts',
     ],
