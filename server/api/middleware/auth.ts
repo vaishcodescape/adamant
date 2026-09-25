@@ -1,5 +1,7 @@
 import type { Context, Next } from 'hono'
 
+export type AuthVariables = { userId: string }
+
 /**
  * Phase 1 User Authentication:
  * The CLI sends ADAMANT_SESSION in the header (or query param for SSE).
@@ -19,6 +21,12 @@ export async function authMiddleware(c: Context, next: Next) {
   if (!token || token !== validToken) {
     return c.json({ error: 'Unauthorized' }, 401)
   }
+
+  const userId = process.env.ADAMANT_SEED_USER_ID
+  if (!userId) {
+    return c.json({ error: 'Server misconfiguration' }, 500)
+  }
+  c.set('userId', userId)
 
   await next()
 }

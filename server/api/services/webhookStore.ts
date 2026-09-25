@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import {
   auditEvents,
   githubInstallations,
@@ -47,6 +47,7 @@ export interface QueuedRunInput {
 }
 
 export interface WebhookStore {
+  transaction<T>(callback: (store: WebhookStore) => Promise<T>): Promise<T>
   upsertInstallation(input: InstallationInput): Promise<string>
   upsertRepository(input: RepositoryInput): Promise<string>
   /** False when this delivery id was already stored. */
@@ -64,6 +65,9 @@ export interface WebhookStore {
 
 export function createPostgresWebhookStore(db: Db): WebhookStore {
   return {
+    transaction(callback) {
+      return db.transaction((tx) => callback(createPostgresWebhookStore(tx as unknown as Db)))
+    },
     async upsertInstallation(input) {
       const rows = await db
         .insert(githubInstallations)
@@ -135,20 +139,28 @@ export function createPostgresWebhookStore(db: Db): WebhookStore {
     },
 
     async createQueuedRun(input) {
-      const rows = await db
-        .insert(runs)
-        .values({
-          id: input.runId,
-          repositoryId: input.repositoryId,
-          sourceSha: input.sourceSha,
-          targetBranch: `adamant/${input.runId}`,
-          idempotencyKey: input.idempotencyKey,
-          status: 'queued',
-        })
-        .onConflictDoNothing()
-        .returning({ id: runs.id })
+      return db.transaction(async (tx) => {
+        const rows = await tx
+          .insert(runs)
+          .values({
+            id: input.runId,
+            repositoryId: input.repositoryId,
+            sourceSha: input.sourceSha,
+            targetBranch: `adamant/${input.runId}`,
+            idempotencyKey: input.idempotencyKey,
+            status: 'queued',
+          })
+          .onConflictDoNothing()
+          .returning({ id: runs.id })
 
-      return rows[0]?.id ?? null
+        const runId = rows[0]?.id
+        if (!runId) return null
+        await tx.execute(sql`select graphile_worker.add_job(
+          'graph_step', json_build_object('runId', ${runId})::json,
+          job_key := ${runId}, max_attempts := 3
+        )`)
+        return runId
+      })
     },
 
     async findRunByPullRequest(repositoryId, prNumber) {
@@ -175,6 +187,7 @@ export function createPostgresWebhookStore(db: Db): WebhookStore {
 export interface MemoryWebhookStore extends WebhookStore {
   readonly deliveries: Map<string, DeliveryInput>
   readonly queuedRuns: QueuedRunInput[]
+  readonly enqueuedRuns: string[]
   readonly audits: { runId: string | null; eventType: string }[]
   /** Seeded by tests so a merged-PR delivery can find a run. */
   readonly publishedPrs: Map<string, string>
@@ -183,17 +196,22 @@ export interface MemoryWebhookStore extends WebhookStore {
 export function createMemoryWebhookStore(): MemoryWebhookStore {
   const deliveries = new Map<string, DeliveryInput>()
   const queuedRuns: QueuedRunInput[] = []
+  const enqueuedRuns: string[] = []
   const audits: { runId: string | null; eventType: string }[] = []
   const publishedPrs = new Map<string, string>()
   const installations = new Map<number, string>()
   const repos = new Map<number, string>()
   const idempotencyKeys = new Set<string>()
 
-  return {
+  const store: MemoryWebhookStore = {
     deliveries,
     queuedRuns,
+    enqueuedRuns,
     audits,
     publishedPrs,
+    transaction(callback) {
+      return callback(store)
+    },
     async upsertInstallation(input) {
       const existing = installations.get(input.githubInstallationId)
       if (existing) return existing
@@ -218,6 +236,7 @@ export function createMemoryWebhookStore(): MemoryWebhookStore {
       if (idempotencyKeys.has(input.idempotencyKey)) return null
       idempotencyKeys.add(input.idempotencyKey)
       queuedRuns.push(input)
+      enqueuedRuns.push(input.runId)
       return input.runId
     },
     async findRunByPullRequest(repositoryId, prNumber) {
@@ -227,4 +246,5 @@ export function createMemoryWebhookStore(): MemoryWebhookStore {
       audits.push({ runId, eventType })
     },
   }
+  return store
 }

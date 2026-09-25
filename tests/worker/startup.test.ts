@@ -54,7 +54,7 @@ function deps(overrides: Partial<GraphStepDependencies> = {}): GraphStepDependen
       defaultBranch: 'main',
       installationId: '99',
     }),
-    markRunning: async () => {},
+    markRunning: async () => true,
     markFinished: async () => {},
     createTools: () => ({ git, sandbox, recorder: createMemoryRecorder() }),
     ...overrides,
@@ -74,6 +74,7 @@ describe('worker', () => {
       deps({
         markRunning: async () => {
           seen.push('running')
+          return true
         },
         markFinished: async (_runId, status) => {
           finished = status
@@ -105,6 +106,19 @@ describe('worker', () => {
           }),
         ),
       /graph_step run not found: missing/,
+    )
+    assert.equal(calls.length, 0)
+  })
+
+  it('does not start a second graph when the run is no longer queued', async () => {
+    const { calls, client } = recordingClient()
+    await graphStep(
+      { runId: 'run-1' },
+      { logger: { info: () => {} } },
+      deps({
+        markRunning: async () => false,
+        llmOptions: { client, model: 'gpt-6' },
+      }),
     )
     assert.equal(calls.length, 0)
   })
