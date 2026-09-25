@@ -1,0 +1,26 @@
+{
+  "name": "@adamant/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/schema/index.ts",
+      "default": "./src/schema/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.3",
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.11",
+    "@types/pg": "^8.23.1"
+  }
+}

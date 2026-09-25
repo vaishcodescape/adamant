@@ -1,0 +1,37 @@
+# Dockerfile for @adamant/worker — mirrors the root Dockerfile's pattern for @adamant/api.
+FROM node:22.12-bookworm-slim AS deps
+
+RUN npm install -g pnpm@10
+
+WORKDIR /app
+
+# Frozen install checks every workspace importer, so each package.json has to
+# be present even though only @adamant/worker (and its @adamant/db dependency)
+# is installed.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY server/worker/package.json server/worker/package.json
+COPY server/db/package.json server/db/package.json
+COPY electron/adamant/package.json electron/adamant/package.json
+COPY electron/main/package.json electron/main/package.json
+COPY electron/preload/package.json electron/preload/package.json
+COPY electron/shared/package.json electron/shared/package.json
+
+RUN pnpm install --frozen-lockfile --filter @adamant/worker --filter @adamant/db --prod --ignore-scripts
+
+FROM node:22.12-bookworm-slim AS runner
+
+ENV NODE_ENV=production
+
+WORKDIR /app
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY server/worker/package.json server/worker/package.json
+COPY server/worker/src server/worker/src
+COPY server/db/package.json server/db/package.json
+COPY server/db/src server/db/src
+
+WORKDIR /app/server/worker
+
+USER node
+
+CMD ["node", "--experimental-strip-types", "src/index.ts"]

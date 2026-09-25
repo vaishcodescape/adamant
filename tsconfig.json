@@ -6,6 +6,8 @@
     { "path": "./electron/preload" },
     { "path": "./electron/adamant" },
     { "path": "./server/api" },
+    { "path": "./server/db" },
+    { "path": "./server/worker" },
     { "path": "./core/agent" }
   ]
 }

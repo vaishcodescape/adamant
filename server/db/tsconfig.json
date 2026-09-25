@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "nodenext",
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "allowImportingTsExtensions": true,
+    "noEmit": true
+  },
+  "include": ["src", "drizzle.config.ts"]
+}

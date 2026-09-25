@@ -1,5 +1,5 @@
 # Local backend. `docker compose up -d postgres` is enough for migrations;
-# `docker compose up` also starts the API.
+# `docker compose up` also starts the API and worker.
 
 services:
   postgres:
@@ -26,6 +26,17 @@ services:
       - '8787:8787'
     environment:
       PORT: '8787'
+      DATABASE_URL: postgres://adamant:adamant@postgres:5432/adamant
+    depends_on:
+      postgres:
+        condition: service_healthy
+    init: true
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    environment:
       DATABASE_URL: postgres://adamant:adamant@postgres:5432/adamant
     depends_on:
       postgres:
