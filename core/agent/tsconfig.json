@@ -5,6 +5,7 @@
     "moduleResolution": "nodenext",
     "lib": ["ES2023"],
     "types": ["node"],
+    "allowImportingTsExtensions": true,
     "noEmit": true
   },
   "include": ["src"]
