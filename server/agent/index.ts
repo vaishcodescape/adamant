@@ -1,4 +1,4 @@
-export { compileHealGraph } from './graph.ts'
+export { compileOpenAiHealGraph } from './graph.ts'
 export { type AgentState, AgentStateAnnotation } from './state.ts'
 export {
   type AgentDependencies,

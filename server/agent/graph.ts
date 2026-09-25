@@ -3,7 +3,7 @@ import { AgentStateAnnotation, type AgentState } from './state.ts'
 import { type AgentDependencies } from './deps.ts'
 import { createNodes } from './nodes.ts'
 
-export const compileHealGraph = (deps: AgentDependencies) => {
+export const compileOpenAiHealGraph = (deps: AgentDependencies) => {
   const nodes = createNodes(deps)
 
   const graph = new StateGraph(AgentStateAnnotation)

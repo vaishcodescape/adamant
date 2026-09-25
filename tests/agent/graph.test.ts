@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test'
 import * as assert from 'node:assert'
-import { compileHealGraph } from '../../server/agent/graph.ts'
+import { compileOpenAiHealGraph } from '../../server/agent/graph.ts'
 import {
   type AgentDependencies,
   type GitProvider,
@@ -34,13 +34,13 @@ describe('Agent System LangGraph Core', () => {
 
   it('graph can be constructed', () => {
     const deps = createMockDeps()
-    const graph = compileHealGraph(deps)
+    const graph = compileOpenAiHealGraph(deps)
     assert.ok(graph)
   })
 
   it('successful sandbox routes to openPr, mergePr, and ends in completed', async () => {
     const deps = createMockDeps()
-    const graph = compileHealGraph(deps)
+    const graph = compileOpenAiHealGraph(deps)
 
     const initialState = {
       runId: 'run-1',
@@ -62,7 +62,7 @@ describe('Agent System LangGraph Core', () => {
       return { verdict: 'fail', commands: [] }
     }
 
-    const graph = compileHealGraph(deps)
+    const graph = compileOpenAiHealGraph(deps)
     const finalState = await graph.invoke({
       runId: 'run-2',
       repository: { owner: 'test', name: 'repo', installationId: 'inst-1' },
@@ -85,7 +85,7 @@ describe('Agent System LangGraph Core', () => {
       return { verdict: 'fail', commands: [] }
     }
 
-    const graph = compileHealGraph(deps)
+    const graph = compileOpenAiHealGraph(deps)
     const finalState = await graph.invoke({
       runId: 'run-3',
       repository: { owner: 'test', name: 'repo', installationId: 'inst-1' },
