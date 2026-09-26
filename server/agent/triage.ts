@@ -1,3 +1,5 @@
+import { redactText } from './recorder.ts'
+
 /**
  * The model never sees a raw job log. Actions logs are mostly setup noise and
  * can carry masked secrets, so the log is parsed here first and only the
@@ -103,7 +105,9 @@ function findFailingTests(lines: readonly string[]): string[] {
  */
 export function parseFailure(logs: string, options?: { maxExcerptChars?: number }): FailureContext {
   const maxExcerptChars = options?.maxExcerptChars ?? MAX_EXCERPT_CHARS
-  const lines = logs.split(/\r?\n/).map(clean)
+  // Redacted whole, before splitting, so a secret-shaped value spanning lines
+  // (a PEM key block) is still caught.
+  const lines = redactText(logs).split(/\r?\n/).map(clean)
   const errorIndex = indexOfMatch(lines, ERROR_PATTERNS)
   const harnessIndex = indexOfMatch(lines, HARNESS_PATTERNS)
 

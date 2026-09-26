@@ -142,6 +142,33 @@ describe('OpenAI heal model', () => {
     assert.match(secondDiagnose, /step-3/)
   })
 
+  it('redacts a secret-shaped sandbox output before it reaches the next prompt', async () => {
+    const { calls, client } = recordingClient()
+    const failingSandbox = {
+      runValidation: async () => ({
+        verdict: 'fail' as const,
+        commands: ['pnpm test'],
+        output: 'assertion failed: leaked sk-abcdefghijklmnopqrstuvwx in test output',
+      }),
+    } as SandboxProvider
+
+    const graph = compileOpenAiHealGraph(
+      { git, sandbox: failingSandbox, recorder: createMemoryRecorder() },
+      { client, model: 'gpt-6' },
+    )
+
+    await graph.invoke({
+      runId: 'run-retry-secret',
+      repository,
+      baseSha: 'abc',
+      maxAttempts: 2,
+    })
+
+    const secondDiagnose = String(calls[3]?.input)
+    assert.equal(secondDiagnose.includes('sk-abcdefghijklmnopqrstuvwx'), false)
+    assert.match(secondDiagnose, /\[redacted\]/)
+  })
+
   it('keeps the raw job log out of the prompt', async () => {
     const { calls, client } = recordingClient()
     const noisyGit = {

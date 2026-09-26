@@ -74,4 +74,20 @@ describe('CI failure triage', () => {
     assert.match(described, /\nLocation: src\/sum\.ts:7\n/)
     assert.match(described, /\nFailing tests: adds two numbers, subtracts two numbers\n/)
   })
+
+  it('redacts a secret-shaped value out of the excerpt and firstError before either reaches the prompt', () => {
+    const leaky = [
+      'Error: request to https://x-access-token:ghp_abcdefghijklmnopqrstuvwxyz1234@github.com failed',
+      '    at src/client.ts:9:3',
+    ].join('\n')
+
+    const failure = parseFailure(leaky)
+
+    assert.equal(failure.excerpt.includes('ghp_abcdefghijklmnopqrstuvwxyz1234'), false)
+    assert.equal(String(failure.firstError).includes('ghp_abcdefghijklmnopqrstuvwxyz1234'), false)
+    assert.match(failure.excerpt, /\[redacted\]/)
+    assert.match(String(failure.firstError), /\[redacted\]/)
+    // Redaction must not eat the location the model needs to find the fix.
+    assert.equal(failure.location, 'src/client.ts:9')
+  })
 })
