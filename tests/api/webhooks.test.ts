@@ -21,13 +21,11 @@ const repository = {
 
 function service() {
   const store = createMemoryWebhookStore()
-  const enqueued: string[] = []
   const webhooks = createWebhookService({
     store,
-    queue: { enqueueGraphStep: async (runId) => void enqueued.push(runId) },
   })
 
-  return { store, enqueued, webhooks }
+  return { store, enqueued: store.enqueuedRuns, webhooks }
 }
 
 function sign(body: string) {

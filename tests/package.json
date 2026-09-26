@@ -1,5 +1,10 @@
 {
   "name": "@adamant/tests",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "@langchain/langgraph-checkpoint": "^1.1.5",
+    "drizzle-orm": "^0.45.3",
+    "openai": "^7.23.0"
+  }
 }

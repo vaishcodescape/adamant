@@ -34,7 +34,7 @@ export type RunTools = {
 
 export type GraphStepDependencies = {
   loadRun: (runId: string) => Promise<HealRun | null>
-  markRunning: (runId: string) => Promise<void>
+  markRunning: (runId: string) => Promise<boolean>
   markFinished: (runId: string, status: 'succeeded' | 'failed') => Promise<void>
   /** Built per run: the worktree, refspec and recorder are all run-scoped. */
   createTools: (run: HealRun) => RunTools
@@ -53,7 +53,11 @@ export async function graphStep(
     throw new Error(`graph_step run not found: ${runId}`)
   }
 
-  await deps.markRunning(runId)
+  const claimed = await deps.markRunning(runId)
+  if (!claimed) {
+    helpers.logger.info('graph_step skipped because run is not queued', { runId })
+    return
+  }
   helpers.logger.info('graph_step invoking heal graph', { runId })
 
   const tools = deps.createTools(run)
