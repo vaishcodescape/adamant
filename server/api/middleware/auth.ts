@@ -1,4 +1,12 @@
 import type { Context, Next } from 'hono'
+import { timingSafeEqual } from 'node:crypto'
+
+/** Same shape either way, so length alone cannot short-circuit the compare. */
+function safeEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a)
+  const bufB = Buffer.from(b)
+  return bufA.length === bufB.length && timingSafeEqual(bufA, bufB)
+}
 
 /**
  * Phase 1 User Authentication:
@@ -16,7 +24,7 @@ export async function authMiddleware(c: Context, next: Next) {
     return c.json({ error: 'Server misconfiguration' }, 500)
   }
 
-  if (!token || token !== validToken) {
+  if (!token || !safeEqual(token, validToken)) {
     return c.json({ error: 'Unauthorized' }, 401)
   }
 

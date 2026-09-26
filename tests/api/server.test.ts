@@ -52,6 +52,35 @@ describe('composed API', () => {
     assert.equal(activity.status, 200)
   })
 
+  it('requires a session for every schema resource, not only /runs', async () => {
+    process.env.ADAMANT_SESSION_SECRET = session
+    const app = createServerApp()
+
+    const blockedRead = await app.request('/sessions')
+    assert.equal(blockedRead.status, 401)
+
+    const blockedForgedSandboxPass = await app.request('/sandbox-results', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        run_id: 'run-1',
+        attempt_number: 1,
+        candidate_hash: 'fake',
+        base_sha: 'abc123',
+        commands: ['npm test'],
+        verdict: 'pass',
+        exit_code: 0,
+        artifact_ref: 'fake',
+      }),
+    })
+    assert.equal(blockedForgedSandboxPass.status, 401)
+
+    const allowed = await app.request('/sandbox-results', {
+      headers: { ADAMANT_SESSION: session },
+    })
+    assert.equal(allowed.status, 200)
+  })
+
   it('accepts a signed GitHub delivery without a CLI session', async () => {
     process.env.GITHUB_WEBHOOK_SECRET = webhookSecret
     const app = createServerApp()
