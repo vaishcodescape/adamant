@@ -27,4 +27,12 @@ describe('composed API', () => {
       200,
     )
   })
+
+  it('does not expose the in-memory schema CRUD routes', async () => {
+    const app = createServerApp(store)
+
+    for (const path of ['/users', '/sessions', '/repositories', '/audit-events']) {
+      assert.equal((await app.request(path)).status, 404, path)
+    }
+  })
 })
