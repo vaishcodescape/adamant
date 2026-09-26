@@ -24,6 +24,7 @@ ENV PORT=8787
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/server/node_modules ./server/node_modules
 COPY server/package.json server/package.json
 COPY server/api server/api
 COPY server/db server/db

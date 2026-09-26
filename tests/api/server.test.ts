@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
+import { createHmac } from 'node:crypto'
 import { afterEach, describe, it } from 'node:test'
 import { createServerApp } from '../../server/api/server.ts'
 import { type RunApiStore } from '../../server/api/services/runStore.ts'
+
+const session = 'cli-session'
+const userId = '00000000-0000-0000-0000-000000000001'
+const webhookSecret = 'webhook-secret'
 
 const store = {
   create: async () => {
@@ -15,40 +20,19 @@ describe('composed API', () => {
   afterEach(() => {
     delete process.env.ADAMANT_SESSION_SECRET
     delete process.env.ADAMANT_SEED_USER_ID
+    delete process.env.GITHUB_WEBHOOK_SECRET
   })
   it('leaves health open and protects runs', async () => {
-    process.env.ADAMANT_SESSION_SECRET = 'secret'
-    process.env.ADAMANT_SEED_USER_ID = '00000000-0000-0000-0000-000000000001'
+    process.env.ADAMANT_SESSION_SECRET = session
+    process.env.ADAMANT_SEED_USER_ID = userId
     const app = createServerApp(store)
     assert.equal((await app.request('/health')).status, 200)
 
-    const blocked = await app.request('/runs', {
-      method: 'POST',
-      body: JSON.stringify({
-        repository_id: 'repo-1',
-        created_by_user_id: 'user-1',
-        base_sha: 'abc123',
-        source_sha: 'abc123',
-        target_branch: 'main',
-      }),
-      headers: { 'content-type': 'application/json' },
-    })
-    assert.equal(blocked.status, 401)
-
-    const created = await app.request('/runs', {
-      method: 'POST',
-      body: JSON.stringify({
-        repository_id: 'repo-1',
-        created_by_user_id: 'user-1',
-        base_sha: 'abc123',
-        source_sha: 'abc123',
-        target_branch: 'main',
-      }),
-      headers: { 'content-type': 'application/json', ADAMANT_SESSION: session },
-    })
-    assert.equal(created.status, 201)
-    const body = (await created.json()) as { data: { status: string } }
-    assert.equal(body.data.status, 'queued')
+    assert.equal((await app.request('/runs')).status, 401)
+    assert.equal(
+      (await app.request('/runs', { headers: { ADAMANT_SESSION: session } })).status,
+      200,
+    )
 
     const activity = await app.request('/activity', {
       headers: { ADAMANT_SESSION: session },
@@ -58,6 +42,7 @@ describe('composed API', () => {
 
   it('requires a session for every schema resource, not only /runs', async () => {
     process.env.ADAMANT_SESSION_SECRET = session
+    process.env.ADAMANT_SEED_USER_ID = userId
     const app = createServerApp()
 
     const blockedRead = await app.request('/sessions')

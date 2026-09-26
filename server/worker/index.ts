@@ -34,7 +34,7 @@ export type RunTools = {
 
 export type GraphStepDependencies = {
   loadRun: (runId: string) => Promise<HealRun | null>
-  markRunning: (runId: string) => Promise<boolean>
+  markRunning: (runId: string, retry: boolean) => Promise<boolean>
   markFinished: (runId: string, status: 'succeeded' | 'failed') => Promise<void>
   /** Built per run: the worktree, refspec and recorder are all run-scoped. */
   createTools: (run: HealRun) => RunTools
@@ -53,7 +53,7 @@ export async function graphStep(
     throw new Error(`graph_step run not found: ${runId}`)
   }
 
-  const claimed = await deps.markRunning(runId)
+  const claimed = await deps.markRunning(runId, isRetry(helpers))
   if (!claimed) {
     helpers.logger.info('graph_step skipped because run is not queued', { runId })
     return
@@ -61,14 +61,14 @@ export async function graphStep(
   helpers.logger.info('graph_step invoking heal graph', { runId })
 
   const tools = deps.createTools(run)
-  const llmOptions = deps.llmOptions
-  const checkpointer = deps.checkpointer
-  const graph = compileOpenAiHealGraph(
-    { git: tools.git, sandbox: tools.sandbox, recorder: tools.recorder },
-    checkpointer ? { ...llmOptions, checkpointer } : llmOptions,
-  )
 
   try {
+    const llmOptions = deps.llmOptions
+    const checkpointer = deps.checkpointer
+    const graph = compileOpenAiHealGraph(
+      { git: tools.git, sandbox: tools.sandbox, recorder: tools.recorder },
+      checkpointer ? { ...llmOptions, checkpointer } : llmOptions,
+    )
     const finalState = await graph.invoke(
       {
         runId,
@@ -111,6 +111,10 @@ function isLastAttempt(helpers: GraphStepHelpers): boolean {
   const job = helpers.job
   if (!job) return true
   return job.attempts >= job.max_attempts
+}
+
+function isRetry(helpers: GraphStepHelpers): boolean {
+  return (helpers.job?.attempts ?? 1) > 1
 }
 
 async function main() {

@@ -29,6 +29,7 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/server/node_modules ./server/node_modules
 COPY server/package.json server/package.json
 COPY server/worker server/worker
 COPY server/agent server/agent
