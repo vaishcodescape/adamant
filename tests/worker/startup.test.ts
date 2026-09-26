@@ -123,6 +123,81 @@ describe('worker', () => {
     assert.equal(calls.length, 0)
   })
 
+  it('reclaims a running run after a transient first-attempt failure', async () => {
+    const { client } = recordingClient()
+    const retryFlags: boolean[] = []
+    let runStatus: 'queued' | 'running' | 'succeeded' | 'failed' = 'queued'
+    let finished: 'succeeded' | 'failed' | undefined
+    let fetchAttempts = 0
+    const retryingGit = {
+      ...git,
+      fetch: async () => {
+        fetchAttempts += 1
+        if (fetchAttempts === 1) throw new Error('transient GitHub failure')
+      },
+    }
+    const retryDeps = deps({
+      markRunning: async (_runId, retry) => {
+        retryFlags.push(retry)
+        if (runStatus === 'queued' || (retry && runStatus === 'running')) {
+          runStatus = 'running'
+          return true
+        }
+        return false
+      },
+      markFinished: async (_runId, status) => {
+        runStatus = status
+        finished = status
+      },
+      createTools: () => ({
+        git: retryingGit,
+        sandbox,
+        recorder: createMemoryRecorder(),
+      }),
+      llmOptions: { client, model: 'gpt-6' },
+    })
+
+    await assert.rejects(
+      () =>
+        graphStep(
+          { runId: 'run-1' },
+          { logger: { info: () => {} }, job: { attempts: 1, max_attempts: 3 } },
+          retryDeps,
+        ),
+      /transient GitHub failure/,
+    )
+    assert.equal(runStatus, 'running')
+
+    await graphStep(
+      { runId: 'run-1' },
+      { logger: { info: () => {} }, job: { attempts: 2, max_attempts: 3 } },
+      retryDeps,
+    )
+
+    assert.deepEqual(retryFlags, [false, true])
+    assert.equal(finished, 'succeeded')
+  })
+
+  it('does not let a duplicate first attempt reclaim a running run', async () => {
+    const { calls, client } = recordingClient()
+    const retryFlags: boolean[] = []
+
+    await graphStep(
+      { runId: 'run-1' },
+      { logger: { info: () => {} }, job: { attempts: 1, max_attempts: 3 } },
+      deps({
+        markRunning: async (_runId, retry) => {
+          retryFlags.push(retry)
+          return false
+        },
+        llmOptions: { client, model: 'gpt-6' },
+      }),
+    )
+
+    assert.deepEqual(retryFlags, [false])
+    assert.equal(calls.length, 0)
+  })
+
   it('disposes the run workspace whether the graph merges or throws', async () => {
     const { client } = recordingClient()
     const disposed: string[] = []
@@ -158,6 +233,29 @@ describe('worker', () => {
     )
 
     assert.deepEqual(disposed, ['merged', 'threw'])
+  })
+
+  it('disposes the run workspace when model configuration fails', async () => {
+    const disposed: string[] = []
+
+    await assert.rejects(
+      () =>
+        graphStep(
+          { runId: 'run-1' },
+          { logger: { info: () => {} } },
+          deps({
+            createTools: () => ({
+              git,
+              sandbox,
+              recorder: createMemoryRecorder(),
+              dispose: async () => void disposed.push('configuration failed'),
+            }),
+          }),
+        ),
+      /OPENAI_API_KEY is required/,
+    )
+
+    assert.deepEqual(disposed, ['configuration failed'])
   })
 
   it('builds the run tools from the loaded run, not from the payload', async () => {

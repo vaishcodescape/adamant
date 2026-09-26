@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, or, sql } from 'drizzle-orm'
 import { createDb, githubInstallations, repositories, runs, type Db } from '../db/client.ts'
 
 /** Graph input loaded from a queued run. `source_sha` is the commit to check out. */
@@ -15,7 +15,7 @@ export type HealRun = {
 
 export type RunStore = {
   loadRun: (runId: string) => Promise<HealRun | null>
-  markRunning: (runId: string) => Promise<boolean>
+  markRunning: (runId: string, retry: boolean) => Promise<boolean>
   markFinished: (runId: string, status: 'succeeded' | 'failed') => Promise<void>
 }
 
@@ -52,11 +52,18 @@ export function createRunStore(db: Db): RunStore {
       }
     },
 
-    async markRunning(runId) {
+    async markRunning(runId, retry) {
       const rows = await db
         .update(runs)
         .set({ status: 'running', updatedAt: new Date(), version: sql`${runs.version} + 1` })
-        .where(and(eq(runs.id, runId), eq(runs.status, 'queued')))
+        .where(
+          and(
+            eq(runs.id, runId),
+            retry
+              ? or(eq(runs.status, 'queued'), eq(runs.status, 'running'))
+              : eq(runs.status, 'queued'),
+          ),
+        )
         .returning({ id: runs.id })
       return rows.length === 1
     },
