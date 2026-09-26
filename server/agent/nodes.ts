@@ -4,6 +4,7 @@ import { type AgentDependencies, type PreviousAttempt } from './deps.ts'
 import { SecureGitClient } from './tools.ts'
 import { parseFailure } from './triage.ts'
 import { buildCommitMessage, buildPrBody, buildPrTitle } from './pr.ts'
+import { redactText } from './recorder.ts'
 
 const candidateHash = (patch: string) => createHash('sha256').update(patch).digest('hex')
 
@@ -155,7 +156,7 @@ export const createNodes = (deps: AgentDependencies) => {
         lastAttemptFailure:
           outcome.verdict === 'pass'
             ? null
-            : `Candidate ${state.attemptNumber} still fails (${outcome.verdict}):\n${outcome.output}`,
+            : `Candidate ${state.attemptNumber} still fails (${outcome.verdict}):\n${redactText(outcome.output)}`,
       }
     },
 
