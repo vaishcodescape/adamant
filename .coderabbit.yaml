@@ -10,9 +10,13 @@
 language: en-US
 
 reviews:
-  profile: chill
+  # assertive: more feedback than the chill default, including nitpicks -
+  # this is a small repo early in Phase 1 where catching more is worth the noise.
+  profile: assertive
   request_changes_workflow: false
   high_level_summary: true
+  # Uncollapsed so the detailed walkthrough is visible without an extra click.
+  collapse_walkthrough: false
   sequence_diagrams: true
   poem: false
 
