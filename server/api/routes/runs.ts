@@ -1,24 +1,33 @@
 import { Hono } from 'hono'
-import { authMiddleware } from '../middleware/auth.ts'
+import { authMiddleware, type AuthVariables } from '../middleware/auth.ts'
+import { createDefaultRunApiStore, type RunApiStore } from '../services/runStore.ts'
 
-const runs = new Hono()
+export function createRunsRoute(store: RunApiStore = createDefaultRunApiStore()) {
+  const route = new Hono<{ Variables: AuthVariables }>()
+  route.use('*', authMiddleware)
 
-// Secure all /runs endpoints with User Authentication
-runs.use('*', authMiddleware)
+  route.post('/', async (c) => {
+    const key = c.req.header('idempotency-key')
+    const body = (await c.req.json().catch(() => null)) as {
+      repositoryId?: string
+      sourceSha?: string
+    } | null
+    if (!key || !body?.repositoryId || !body.sourceSha) {
+      return c.json({ error: 'Idempotency-Key, repositoryId, and sourceSha are required' }, 400)
+    }
+    const result = await store.create({
+      repositoryId: body.repositoryId,
+      sourceSha: body.sourceSha,
+      idempotencyKey: key,
+      userId: c.get('userId'),
+    })
+    return c.json({ run: result.run }, result.created ? 202 : 200)
+  })
 
-runs.post('/', async (c) => {
-  // Start a manual run (Phase 1 hits this or webhooks)
-  return c.json({ runId: 'TODO', status: 'queued' }, 202)
-})
-
-runs.get('/', async (c) => {
-  // CLI list runs
-  return c.json({ runs: [] })
-})
-
-runs.get('/:id', async (c) => {
-  // CLI detail
-  return c.json({ id: c.req.param('id'), status: 'queued', audit_events: [] })
-})
-
-export { runs }
+  route.get('/', async (c) => c.json({ runs: await store.list(c.get('userId')) }))
+  route.get('/:id', async (c) => {
+    const detail = await store.detail(c.get('userId'), c.req.param('id'))
+    return detail ? c.json(detail) : c.json({ error: 'Run not found' }, 404)
+  })
+  return route
+}

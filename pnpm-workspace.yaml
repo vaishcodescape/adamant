@@ -1,5 +1,7 @@
 packages:
   - 'electron/*'
   - 'server'
+  - 'tests'
 allowBuilds:
   electron-winstaller: true
+  esbuild: true

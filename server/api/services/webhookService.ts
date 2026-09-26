@@ -1,6 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { createDb } from '../../db/client.ts'
-import { createGraphileRunQueue, createUnavailableRunQueue, type RunQueue } from './runQueue.ts'
 import {
   createMemoryWebhookStore,
   createPostgresWebhookStore,
@@ -17,7 +16,6 @@ import {
  */
 export interface WebhookDependencies {
   readonly store: WebhookStore
-  readonly queue: RunQueue
 }
 
 export interface WebhookResult {
@@ -59,12 +57,12 @@ const digest = (payload: unknown) =>
 
 export function createWebhookService(deps: WebhookDependencies) {
   /** Both rows are keyed on GitHub's numeric ids, so this is safe to repeat. */
-  async function bind(payload: EventPayload) {
+  async function bind(store: WebhookStore, payload: EventPayload) {
     const installationId = payload.installation?.id
     const repository = payload.repository
     if (!installationId) return { installationRowId: null, repositoryRowId: null }
 
-    const installationRowId = await deps.store.upsertInstallation({
+    const installationRowId = await store.upsertInstallation({
       githubInstallationId: installationId,
       accountLogin: payload.installation?.account?.login ?? 'unknown',
       accountType: payload.installation?.account?.type ?? 'Organization',
@@ -75,7 +73,7 @@ export function createWebhookService(deps: WebhookDependencies) {
       return { installationRowId, repositoryRowId: null }
     }
 
-    const repositoryRowId = await deps.store.upsertRepository({
+    const repositoryRowId = await store.upsertRepository({
       installationId: installationRowId,
       githubRepoId: repository.id,
       owner,
@@ -87,6 +85,7 @@ export function createWebhookService(deps: WebhookDependencies) {
   }
 
   async function handleWorkflowRun(
+    store: WebhookStore,
     deliveryId: string,
     payload: EventPayload,
     repositoryRowId: string | null,
@@ -98,7 +97,7 @@ export function createWebhookService(deps: WebhookDependencies) {
     if (!repositoryRowId || !headSha) return null
 
     const runId = randomUUID()
-    const created = await deps.store.createQueuedRun({
+    const created = await store.createQueuedRun({
       runId,
       repositoryId: repositoryRowId,
       sourceSha: headSha,
@@ -107,14 +106,12 @@ export function createWebhookService(deps: WebhookDependencies) {
 
     if (!created) return null
 
-    await deps.store.recordAudit(created, 'run.queued', { deliveryId, sourceSha: headSha })
-    // Last: a run row with no job is recoverable, a job with no run is not.
-    await deps.queue.enqueueGraphStep(created)
-
+    await store.recordAudit(created, 'run.queued', { deliveryId, sourceSha: headSha })
     return created
   }
 
   async function handlePullRequest(
+    store: WebhookStore,
     deliveryId: string,
     payload: EventPayload,
     repositoryRowId: string | null,
@@ -126,8 +123,8 @@ export function createWebhookService(deps: WebhookDependencies) {
 
     // A merge confirms a run we opened. It never starts a heal, and it never
     // merges anything a second time.
-    const runId = await deps.store.findRunByPullRequest(repositoryRowId, prNumber)
-    await deps.store.recordAudit(runId, 'pull_request.merged', {
+    const runId = await store.findRunByPullRequest(repositoryRowId, prNumber)
+    await store.recordAudit(runId, 'pull_request.merged', {
       deliveryId,
       prNumber,
       ours: runId !== null,
@@ -137,6 +134,7 @@ export function createWebhookService(deps: WebhookDependencies) {
   }
 
   async function dispatch(
+    store: WebhookStore,
     deliveryId: string,
     event: string,
     payload: EventPayload,
@@ -144,9 +142,9 @@ export function createWebhookService(deps: WebhookDependencies) {
   ): Promise<string | null> {
     switch (event) {
       case 'workflow_run':
-        return handleWorkflowRun(deliveryId, payload, repositoryRowId)
+        return handleWorkflowRun(store, deliveryId, payload, repositoryRowId)
       case 'pull_request':
-        return handlePullRequest(deliveryId, payload, repositoryRowId)
+        return handlePullRequest(store, deliveryId, payload, repositoryRowId)
       default:
         return null
     }
@@ -158,25 +156,27 @@ export function createWebhookService(deps: WebhookDependencies) {
       event: string,
       rawPayload: unknown,
     ): Promise<WebhookResult> {
-      const payload = (rawPayload ?? {}) as EventPayload
-      const { installationRowId, repositoryRowId } = await bind(payload)
+      return deps.store.transaction(async (store) => {
+        const payload = (rawPayload ?? {}) as EventPayload
+        const { installationRowId, repositoryRowId } = await bind(store, payload)
 
-      const stored = await deps.store.recordDelivery({
-        deliveryId,
-        eventType: event,
-        installationId: installationRowId,
-        repositoryId: repositoryRowId,
-        payloadDigest: digest(rawPayload),
+        const stored = await store.recordDelivery({
+          deliveryId,
+          eventType: event,
+          installationId: installationRowId,
+          repositoryId: repositoryRowId,
+          payloadDigest: digest(rawPayload),
+        })
+
+        if (!stored) {
+          throw new DuplicateDeliveryError()
+        }
+
+        const runId = await dispatch(store, deliveryId, event, payload, repositoryRowId)
+        await store.markDeliveryProcessed(deliveryId, runId ? 'processed' : 'ignored')
+
+        return { runId }
       })
-
-      if (!stored) {
-        throw new DuplicateDeliveryError()
-      }
-
-      const runId = await dispatch(deliveryId, event, payload, repositoryRowId)
-      await deps.store.markDeliveryProcessed(deliveryId, runId ? 'processed' : 'ignored')
-
-      return { runId }
     },
   }
 }
@@ -197,11 +197,9 @@ export function defaultWebhookService(): WebhookService {
   cached = url
     ? createWebhookService({
         store: createPostgresWebhookStore(createDb(url)),
-        queue: createGraphileRunQueue(url),
       })
     : createWebhookService({
         store: createMemoryWebhookStore(),
-        queue: createUnavailableRunQueue(),
       })
 
   return cached
