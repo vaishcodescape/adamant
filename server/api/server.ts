@@ -3,9 +3,10 @@ import { Hono } from 'hono'
 import { createDb, type Db } from '../db/client.ts'
 import { createApp, resourceNames } from './app.ts'
 import { createAuthMiddleware } from './middleware/auth.ts'
-import { activity } from './routes/activity.ts'
+import { createActivityRoute } from './routes/activity.ts'
 import { createAuthRoute, type OAuthConfig } from './routes/auth.ts'
 import { createRunsRoute } from './routes/runs.ts'
+import { createActivityService, type ActivityService } from './services/activityService.ts'
 import { createPostgresRunApiStore, type RunApiStore } from './services/runStore.ts'
 import { github } from './webhooks/github.ts'
 
@@ -21,6 +22,7 @@ export type ServerOptions = {
   database?: Db
   oauthConfig?: OAuthConfig
   fetch?: typeof globalThis.fetch
+  activityService?: ActivityService
 }
 
 function readOAuthConfig(): OAuthConfig {
@@ -49,6 +51,11 @@ export function createServerApp(runStore?: RunApiStore, options: ServerOptions =
     ...(database ? { database } : {}),
   })
   const resolvedRunStore = runStore ?? (database ? createPostgresRunApiStore(database) : undefined)
+  const resolvedActivityService =
+    options.activityService ??
+    createActivityService({
+      ...(database ? { database } : {}),
+    })
 
   for (const name of resourceNames) {
     app.use(`/${name}`, authMiddleware)
@@ -71,10 +78,10 @@ export function createServerApp(runStore?: RunApiStore, options: ServerOptions =
     )
   }
 
-  createApp(undefined, app)
+  createApp(undefined, app, resolvedActivityService)
 
   app.route('/webhooks/github', github)
-  app.route('/activity', activity)
+  app.route('/activity', createActivityRoute(resolvedActivityService))
 
   return app
 }

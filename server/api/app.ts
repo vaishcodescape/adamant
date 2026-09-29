@@ -217,7 +217,13 @@ function withoutImmutableFields(input: JsonRecord, primaryKey: string) {
   return mutable
 }
 
-export function createApp(stores = createStores(), app: HonoApp = new Hono()) {
+import { type ActivityService } from './services/activityService.ts'
+
+export function createApp(
+  stores = createStores(),
+  app: HonoApp = new Hono(),
+  activityService?: ActivityService,
+) {
   app.get('/health', (c) => c.json({ status: 'ok' }))
 
   for (const [name, config] of Object.entries(resourceConfigs) as [
@@ -250,6 +256,24 @@ export function createApp(stores = createStores(), app: HonoApp = new Hono()) {
         }
 
         store.set(id, saved)
+
+        if (name === 'webhook-deliveries') {
+          const rec = saved as Record<string, unknown>
+          activityService?.publish({
+            id: `wh_${id}`,
+            type: `webhook:${String(rec.event_type ?? rec.eventType ?? 'unknown')}`,
+            timestamp: String(rec.received_at ?? rec.receivedAt ?? now()),
+            payload: saved,
+          })
+        } else if (name === 'audit-events') {
+          const rec = saved as Record<string, unknown>
+          activityService?.publish({
+            id: `audit_${id}`,
+            type: `audit:${String(rec.event_type ?? rec.eventType ?? 'unknown')}`,
+            timestamp: String(rec.created_at ?? rec.createdAt ?? now()),
+            payload: saved,
+          })
+        }
 
         return c.json({ data: saved }, 201)
       })
