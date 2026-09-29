@@ -1,15 +1,92 @@
 import { Hono } from 'hono'
-import { authMiddleware } from '../middleware/auth.ts'
+import { streamSSE } from 'hono/streaming'
+import {
+  createActivityService,
+  type ActivityEvent,
+  type ActivityService,
+} from '../services/activityService.ts'
 
-const activity = new Hono()
+export function createActivityRoute(service?: ActivityService) {
+  const activity = new Hono()
+  const activityService = service ?? createActivityService()
 
-// Secure SSE endpoint with User Authentication
-activity.use('*', authMiddleware)
+  activity.get('/', async (c) => {
+    const lastEventId = c.req.header('last-event-id') ?? c.req.query('lastEventId') ?? null
 
-activity.get('/', async (c) => {
-  // Stub for SSE events used by `adamant watch`
-  // In a real implementation, this would use hono/streaming
-  return c.json({ message: 'SSE stream connected (stub)' })
-})
+    c.header('Content-Type', 'text/event-stream')
+    c.header('Cache-Control', 'no-cache')
+    c.header('Connection', 'keep-alive')
 
-export { activity }
+    return streamSSE(c, async (stream) => {
+      let active = true
+
+      const listener = async (event: ActivityEvent) => {
+        if (!active) return
+        try {
+          await stream.writeSSE({
+            id: event.id,
+            event: event.type,
+            data: JSON.stringify(event.payload),
+          })
+        } catch {
+          active = false
+        }
+      }
+
+      const unsubscribe = activityService.subscribe(listener)
+
+      const cleanup = () => {
+        if (active) {
+          active = false
+          unsubscribe()
+        }
+      }
+
+      stream.onAbort(() => {
+        cleanup()
+      })
+
+      if (c.req.raw.signal.aborted) {
+        cleanup()
+        return
+      }
+
+      const history = await activityService.getHistory()
+      let startIndex = 0
+      if (lastEventId) {
+        const foundIdx = history.findIndex((e) => e.id === lastEventId)
+        if (foundIdx !== -1) {
+          startIndex = foundIdx + 1
+        }
+      }
+
+      for (let i = startIndex; i < history.length; i++) {
+        const evt = history[i]
+        if (!evt || !active) break
+        await stream.writeSSE({
+          id: evt.id,
+          event: evt.type,
+          data: JSON.stringify(evt.payload),
+        })
+      }
+
+      await new Promise<void>((resolve) => {
+        const onAbort = () => {
+          cleanup()
+          resolve()
+        }
+
+        if (c.req.raw.signal.aborted) {
+          onAbort()
+        } else {
+          c.req.raw.signal.addEventListener('abort', onAbort, { once: true })
+          stream.onAbort(() => {
+            onAbort()
+          })
+        }
+      })
+    })
+  })
+
+  return activity
+}

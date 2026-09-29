@@ -1,8 +1,9 @@
 import { Hono } from 'hono'
 import { createApp, resourceNames } from './app.ts'
 import { authMiddleware } from './middleware/auth.ts'
-import { activity } from './routes/activity.ts'
+import { createActivityRoute } from './routes/activity.ts'
 import { createRunsRoute } from './routes/runs.ts'
+import { createActivityService, type ActivityService } from './services/activityService.ts'
 import { type RunApiStore } from './services/runStore.ts'
 import { github } from './webhooks/github.ts'
 
@@ -14,8 +15,14 @@ import { github } from './webhooks/github.ts'
  * direct tests. GitHub calls /webhooks/github with its own signature, and
  * /health stays open for infra checks.
  */
-export function createServerApp(runStore?: RunApiStore) {
+export type ServerOptions = {
+  activityService?: ActivityService
+}
+
+export function createServerApp(runStore?: RunApiStore, options: ServerOptions = {}) {
   const app = new Hono()
+
+  const resolvedActivityService = options.activityService ?? createActivityService()
 
   for (const name of resourceNames) {
     app.use(`/${name}`, authMiddleware)
@@ -27,9 +34,11 @@ export function createServerApp(runStore?: RunApiStore) {
   if (runStore || process.env.DATABASE_URL) {
     app.route('/runs', createRunsRoute(runStore))
   }
-  createApp(undefined, app)
+
+  createApp(undefined, app, resolvedActivityService)
+
   app.route('/webhooks/github', github)
-  app.route('/activity', activity)
+  app.route('/activity', createActivityRoute(resolvedActivityService))
 
   return app
 }
