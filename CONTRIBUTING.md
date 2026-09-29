@@ -33,11 +33,12 @@ security: [AGENTS.md](AGENTS.md) (applies to people as well as agents).
 The `adamant-protocols` ruleset ([adamant-protocols.json](adamant-protocols.json)) requires:
 
 - one approving review
+- a completed CodeRabbit review of the current commit
 - linear history, so PRs are **squash-merged** and the PR title becomes the commit subject
 - Copilot code review and CodeQL code scanning
 
-The ruleset doesn't target any branch yet (see
-[backend-architecture.md](docs/backend-architecture.md#ruleset)); follow this flow anyway.
+The checked-in ruleset targets the default branch. Repository administrators keep the live GitHub
+ruleset aligned with [adamant-protocols.json](adamant-protocols.json).
 
 Reviewers check correctness first, then the security rules in AGENTS.md, then
 [docs/performance.md](docs/performance.md) for run-path changes. Style is Prettier and ESLint's

@@ -205,7 +205,11 @@ export const createNodes = (deps: AgentDependencies) => {
       }
 
       try {
-        await gateway(state).mergePr(state.prNumber, state.prNumber)
+        // The expected number comes from the persisted publication, not from
+        // graph state, so passing state to both sides cannot make the gateway's
+        // cross-check vacuous.
+        const published = await deps.recorder.publishedPrNumber()
+        await gateway(state).mergePr(state.prNumber, published)
         await deps.recorder.audit('run.merged', { prNumber: state.prNumber, prUrl: state.prUrl })
 
         return { status: 'completed' }

@@ -29,7 +29,10 @@ services:
       DATABASE_URL: postgres://adamant:adamant@postgres:5432/adamant
       # The API verifies the HMAC and enqueues. It gets no GitHub App key.
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+      # Both halves of the seeded session. Without the user id every
+      # authenticated route answers 500.
       ADAMANT_SESSION_SECRET: ${ADAMANT_SESSION_SECRET:-}
+      ADAMANT_SEED_USER_ID: ${ADAMANT_SEED_USER_ID:-}
     depends_on:
       postgres:
         condition: service_healthy

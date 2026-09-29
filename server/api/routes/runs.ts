@@ -1,10 +1,14 @@
 import { Hono } from 'hono'
-import { authMiddleware, type AuthVariables } from '../middleware/auth.ts'
+import { type MiddlewareHandler } from 'hono'
+import { createAuthMiddleware, type AuthVariables } from '../middleware/auth.ts'
 import { createDefaultRunApiStore, type RunApiStore } from '../services/runStore.ts'
 
-export function createRunsRoute(store: RunApiStore = createDefaultRunApiStore()) {
+export function createRunsRoute(
+  store: RunApiStore = createDefaultRunApiStore(),
+  requireSession: MiddlewareHandler = createAuthMiddleware(),
+) {
   const route = new Hono<{ Variables: AuthVariables }>()
-  route.use('*', authMiddleware)
+  route.use('*', requireSession)
 
   route.post('/', async (c) => {
     const key = c.req.header('idempotency-key')

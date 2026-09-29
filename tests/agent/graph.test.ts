@@ -166,6 +166,12 @@ describe('SecureGitClient Tool Boundary', () => {
       commands: ['npm test'],
       verdict: 'pass',
     })
+    await recorder.prPublication({
+      prNumber: 7,
+      prUrl: 'https://github.com/test/repo/pull/7',
+      baseSha: 'abc',
+      candidateHash: 'hash',
+    })
 
     const gateway = client(
       { mergePr: async (prNumber) => void (merged = prNumber) },
@@ -175,6 +181,22 @@ describe('SecureGitClient Tool Boundary', () => {
     await gateway.mergePr(7, 7)
 
     assert.strictEqual(merged, 7)
+  })
+
+  it('refuses to merge a PR this run never recorded publishing', async () => {
+    const recorder = createMemoryRecorder()
+    await recorder.sandboxResult({
+      attemptNumber: 1,
+      candidateHash: 'hash',
+      baseSha: 'abc',
+      commands: ['npm test'],
+      verdict: 'pass',
+    })
+
+    await assert.rejects(
+      client({}, 'run-1', recorder).mergePr(7, 7),
+      /Cannot merge PR 7. This run published no pull request/,
+    )
   })
 
   it('automatic merge fails unless a passing sandbox row exists', async () => {

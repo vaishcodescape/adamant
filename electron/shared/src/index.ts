@@ -27,6 +27,28 @@ export interface AppInfo {
   }
 }
 
+/**
+ * Where renderer-initiated navigation is allowed to end up.
+ *
+ * Handing an arbitrary URL to the OS is how a renderer reaches things a
+ * browser never would: `file://`, `smb://`, and every scheme some other
+ * installed app has registered. Only the two web schemes leave the app, and
+ * the parsed href is what gets handed on, never the raw string.
+ */
+export function externalUrl(url: string): string | null {
+  let parsed: URL
+
+  try {
+    parsed = new URL(url)
+  } catch {
+    return null
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
+
+  return parsed.href
+}
+
 /** The surface `preload` exposes on `window.adamant`. */
 export interface AdamantApi {
   getAppInfo(): Promise<AppInfo>

@@ -8,6 +8,27 @@
       "when": 1790336463233,
       "tag": "0000_phase_1_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790437990247,
+      "tag": "0001_lucky_mister_fear",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790502813541,
+      "tag": "0002_parallel_rage",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790573575380,
+      "tag": "0003_thick_vin_gonzales",
+      "breakpoints": true
     }
   ]
 }

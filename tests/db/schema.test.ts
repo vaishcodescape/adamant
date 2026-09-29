@@ -9,6 +9,8 @@ describe('database schema', () => {
     const names = [
       schema.users,
       schema.sessions,
+      schema.userIdentities,
+      schema.oauthStates,
       schema.githubInstallations,
       schema.repositories,
       schema.webhookDeliveries,
@@ -28,6 +30,7 @@ describe('database schema', () => {
       'audit_events',
       'github_installations',
       'hitl_decisions',
+      'oauth_states',
       'patch_attempts',
       'pr_publications',
       'repositories',
@@ -36,6 +39,7 @@ describe('database schema', () => {
       'sessions',
       'tool_invocations',
       'triage_results',
+      'user_identities',
       'users',
       'webhook_deliveries',
     ])

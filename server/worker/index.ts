@@ -6,6 +6,7 @@ import { run } from 'graphile-worker'
 import { compileOpenAiHealGraph, type OpenAiLlmOptions } from '../agent/index.ts'
 import { type RunRecorder } from '../agent/recorder.ts'
 import { type GitProvider, type SandboxProvider } from '../agent/deps.ts'
+import { deleteExpiredOAuthStates } from '../api/services/authService.ts'
 import { createRunProviders } from './providers.ts'
 import { createRunStore, createWorkerDb, type HealRun } from './runs.ts'
 
@@ -40,6 +41,24 @@ export type GraphStepDependencies = {
   createTools: (run: HealRun) => RunTools
   llmOptions?: OpenAiLlmOptions
   checkpointer?: BaseCheckpointSaver
+}
+
+const OAUTH_STATE_BATCH_SIZE = 1_000
+const OAUTH_STATE_MAX_BATCHES = 50
+
+export async function drainExpiredOAuthStates(deleteBatch: () => Promise<number>): Promise<number> {
+  let deleted = 0
+
+  for (let batch = 0; batch < OAUTH_STATE_MAX_BATCHES; batch += 1) {
+    const count = await deleteBatch()
+    deleted += count
+
+    if (count < OAUTH_STATE_BATCH_SIZE) {
+      break
+    }
+  }
+
+  return deleted
 }
 
 export async function graphStep(
@@ -138,9 +157,14 @@ async function main() {
   const runner = await run({
     connectionString,
     concurrency: 1,
+    crontab: '0 * * * * cleanup_oauth_states',
     taskList: {
       graph_step: async (payload, helpers) => {
         await graphStep(payload, helpers, deps)
+      },
+      cleanup_oauth_states: async (_payload, helpers) => {
+        const deleted = await drainExpiredOAuthStates(() => deleteExpiredOAuthStates(db))
+        helpers.logger.info('expired OAuth states deleted', { deleted })
       },
     },
   })

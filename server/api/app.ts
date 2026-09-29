@@ -46,22 +46,28 @@ export const resourceNames = [
 
 const now = () => new Date().toISOString()
 
-const withTimestamps = (input: JsonRecord) => ({
-  created_at: now(),
-  updated_at: now(),
-  ...input,
-})
+/** One clock read, so a freshly created row does not look as if it was edited. */
+const withTimestamps = (input: JsonRecord) => {
+  const at = now()
+  return { created_at: at, updated_at: at, ...input }
+}
 
 const appendCreatedAt = (input: JsonRecord) => ({
   created_at: now(),
   ...input,
 })
 
+/**
+ * `required` is exactly the set of columns each table declares NOT NULL with no
+ * database default, minus anything `defaults` fills in below. Anything looser
+ * accepts a row that could never persist; anything stricter rejects one the
+ * schema allows. Source of truth: server/db/schema.
+ */
 const resourceConfigs = {
   users: {
     primaryKey: 'id',
-    required: ['github_user_id'],
-    defaults: appendCreatedAt,
+    required: ['username'],
+    defaults: withTimestamps,
   },
   sessions: {
     primaryKey: 'id',
@@ -70,23 +76,23 @@ const resourceConfigs = {
   },
   'github-installations': {
     primaryKey: 'id',
-    required: ['github_installation_id'],
-    defaults: appendCreatedAt,
+    required: ['github_installation_id', 'account_login', 'account_type'],
+    defaults: withTimestamps,
   },
   repositories: {
     primaryKey: 'id',
     required: ['installation_id', 'github_repo_id', 'owner', 'name'],
-    defaults: withTimestamps,
+    defaults: (input) => withTimestamps({ default_branch: 'main', ...input }),
   },
   runs: {
     primaryKey: 'id',
-    required: ['repository_id', 'created_by_user_id', 'base_sha', 'source_sha', 'target_branch'],
+    required: ['repository_id', 'source_sha'],
     defaults: (input) => {
       const runId = typeof input.id === 'string' ? input.id : randomUUID()
 
       return withTimestamps({
         status: 'queued',
-        version: 0,
+        version: 1,
         idempotency_key: `manual:${runId}`,
         ...input,
         id: runId,
@@ -96,84 +102,86 @@ const resourceConfigs = {
   },
   'webhook-deliveries': {
     primaryKey: 'id',
-    required: [
-      'github_delivery_id',
-      'event_type',
-      'processing_status',
-      'installation_id',
-      'repository_id',
-      'payload_digest',
-    ],
-    defaults: appendCreatedAt,
+    required: ['github_delivery_id', 'event_type'],
+    defaults: (input) => ({
+      received_at: now(),
+      processing_status: 'received',
+      ...input,
+    }),
   },
   'triage-results': {
     primaryKey: 'id',
-    required: ['run_id', 'category', 'details'],
-    defaults: appendCreatedAt,
+    required: ['run_id', 'category', 'reason_code'],
+    defaults: (input) => appendCreatedAt({ failing_tests: [], ...input }),
   },
   'patch-attempts': {
     primaryKey: 'id',
-    required: ['run_id', 'attempt_number', 'candidate_hash', 'patch_diff', 'outcome'],
-    defaults: appendCreatedAt,
+    required: ['run_id', 'attempt_number', 'candidate_hash', 'outcome'],
+    defaults: (input) => ({
+      started_at: now(),
+      ...input,
+    }),
   },
   'sandbox-results': {
     primaryKey: 'id',
-    required: [
-      'run_id',
-      'attempt_number',
-      'candidate_hash',
-      'base_sha',
-      'commands',
-      'verdict',
-      'exit_code',
-      'artifact_ref',
-    ],
+    required: ['run_id', 'attempt_number', 'base_sha', 'verdict'],
     defaults: (input) => ({
       created_at: now(),
       started_at: now(),
-      finished_at: now(),
+      commands: [],
       ...input,
     }),
   },
   'pr-publications': {
     primaryKey: 'id',
-    required: ['run_id', 'repository_id', 'github_pr_number', 'pr_url'],
+    required: [
+      'run_id',
+      'repository_id',
+      'github_pr_number',
+      'pr_url',
+      'base_sha',
+      'candidate_hash',
+    ],
     defaults: appendCreatedAt,
   },
   'tool-invocations': {
     primaryKey: 'id',
-    required: ['run_id', 'repository_id', 'tool_name', 'input_redacted', 'outcome'],
+    required: ['run_id', 'repository_id', 'tool_name', 'outcome'],
     defaults: (input) => ({
+      created_at: now(),
       started_at: now(),
-      finished_at: now(),
+      input_redacted: {},
       ...input,
     }),
   },
   'hitl-decisions': {
     primaryKey: 'id',
-    required: [
-      'run_id',
-      'run_version',
-      'candidate_hash',
-      'base_sha',
-      'decided_by_user_id',
-      'decision_id',
-      'action',
-      'status',
-    ],
-    defaults: appendCreatedAt,
+    required: ['run_id', 'run_version', 'base_sha', 'decided_by_user_id', 'action'],
+    defaults: (input) => ({ decided_at: now(), ...input }),
   },
   approvals: {
     primaryKey: 'id',
-    required: ['run_id', 'run_version', 'candidate_hash', 'base_sha', 'action', 'status'],
-    defaults: appendCreatedAt,
+    required: ['run_id', 'run_version', 'candidate_hash', 'base_sha', 'decision_id'],
+    defaults: (input) => appendCreatedAt({ status: 'active', ...input }),
   },
   'audit-events': {
     primaryKey: 'id',
-    required: ['run_id', 'actor_user_id', 'event_type', 'payload'],
-    defaults: appendCreatedAt,
+    required: ['event_type'],
+    defaults: (input) => appendCreatedAt({ payload: {}, ...input }),
   },
 } as const satisfies Record<ResourceName, ResourceConfig>
+
+/**
+ * The POST contract per resource, exposed so a test can diff it against the
+ * Drizzle tables instead of trusting the two to stay in step by hand.
+ */
+export const requiredFields = resourceNames.reduce(
+  (fields, name) => {
+    fields[name] = resourceConfigs[name].required
+    return fields
+  },
+  {} as Record<ResourceName, readonly string[]>,
+)
 
 function createStores() {
   return resourceNames.reduce(

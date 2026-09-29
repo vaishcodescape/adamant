@@ -193,11 +193,50 @@ Never store secrets in `jsonb`.
 
 ### `users`
 
-| Column       | Type        | Constraints                        |
-| ------------ | ----------- | ---------------------------------- |
-| `id`         | uuid        | PK                                 |
-| `github_id`  | bigint      | unique, not null                   |
-| `created_at` | timestamptz | not null, default now() **(exec)** |
+| Column           | Type        | Constraints                             |
+| ---------------- | ----------- | --------------------------------------- |
+| `id`             | uuid        | PK                                      |
+| `github_user_id` | text        | unique, nullable during OAuth migration |
+| `username`       | text        | not null                                |
+| `email`          | text        | nullable, unique case-insensitively     |
+| `created_at`     | timestamptz | not null, default now() **(exec)**      |
+| `updated_at`     | timestamptz | not null, default now() **(exec)**      |
+
+### `user_identities`
+
+Links one Adamant user to a GitHub or Google account without storing provider access or refresh
+tokens. The pair `(provider, provider_user_id)` is unique, so concurrent callbacks cannot attach
+one provider account twice. A provider email is used to link accounts only after that provider
+reports it as verified; email comparison is normalized to lowercase and backed by the
+case-insensitive `users_email_uidx` index.
+
+| Column             | Type        | Constraints                                 |
+| ------------------ | ----------- | ------------------------------------------- |
+| `id`               | uuid        | PK                                          |
+| `user_id`          | uuid        | not null, FK → `users.id` on delete cascade |
+| `provider`         | text        | not null, check GitHub or Google            |
+| `provider_user_id` | text        | not null                                    |
+| `email`            | text        | nullable, verified provider email           |
+| `created_at`       | timestamptz | not null, default now()                     |
+| `updated_at`       | timestamptz | not null, default now()                     |
+
+### `oauth_states`
+
+Single-use CSRF state for an OAuth authorization request. Each random state is unique and expires
+after 15 minutes. Callback consumption is one atomic `DELETE ... RETURNING` guarded by provider and
+expiry, so a state cannot be replayed by concurrent callbacks. The worker deletes expired rows
+hourly through the indexed `cleanup_oauth_states` task in batches of 1,000, stopping after a
+partial batch or 50 batches.
+
+| Column       | Type        | Constraints                      |
+| ------------ | ----------- | -------------------------------- |
+| `id`         | uuid        | PK                               |
+| `state`      | text        | unique, not null                 |
+| `provider`   | text        | not null, check GitHub or Google |
+| `created_at` | timestamptz | not null, default now()          |
+| `expires_at` | timestamptz | not null                         |
+
+Index: `oauth_states_expires_at_idx` on `expires_at`.
 
 ### `sessions`
 
@@ -205,15 +244,17 @@ The client holds an unguessable secret (Electron: `Authorization: Bearer`;
 browser: `HttpOnly` cookie). Postgres stores only `token_hash`. `id` is a
 lookup key, not the bearer. See [backend-architecture.md](backend-architecture.md#user-authentication).
 
-| Column       | Type        | Constraints                                  |
-| ------------ | ----------- | -------------------------------------------- |
-| `id`         | uuid        | PK                                           |
-| `user_id`    | uuid        | not null, FK → `users.id` on delete cascade  |
-| `token_hash` | text        | unique, not null (hash of the bearer secret) |
-| `expires_at` | timestamptz | not null                                     |
-| `created_at` | timestamptz | not null, default now() **(exec)**           |
+| Column         | Type        | Constraints                                  |
+| -------------- | ----------- | -------------------------------------------- |
+| `id`           | uuid        | PK                                           |
+| `user_id`      | uuid        | not null, FK → `users.id` on delete cascade  |
+| `token_hash`   | text        | unique, not null (hash of the bearer secret) |
+| `expires_at`   | timestamptz | not null                                     |
+| `created_at`   | timestamptz | not null, default now() **(exec)**           |
+| `revoked_at`   | timestamptz | nullable                                     |
+| `last_used_at` | timestamptz | nullable                                     |
 
-Indexes: `sessions_expires_at_idx` on `expires_at`; unique on `token_hash`.
+Indexes: `sessions_user_id_idx` on `user_id`; unique on `token_hash`.
 Never log the raw secret. Never store GitHub user access tokens here.
 
 ### `installations`

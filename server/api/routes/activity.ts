@@ -90,3 +90,5 @@ export function createActivityRoute(service?: ActivityService) {
 
   return activity
 }
+
+export const activity = createActivityRoute()

@@ -82,9 +82,10 @@ export class SecureGitClient {
   }
 
   /**
-   * Merges this run's pull request and nothing else. The verdict is read back
-   * from `sandbox_results`, not from graph state, so an in-memory pass that was
-   * never persisted cannot merge anything.
+   * Merges this run's pull request and nothing else. Both gates are read back
+   * from the recorder rather than taken from graph state, so an in-memory pass
+   * or an in-memory PR number that was never persisted cannot merge anything.
+   * `expectedPrNumber` is the caller's own view, cross-checked against it.
    */
   async mergePr(prNumber: number, expectedPrNumber: number | null): Promise<void> {
     await this.guarded('merge_pull_request', { prNumber, expectedPrNumber }, async () => {
@@ -94,16 +95,24 @@ export class SecureGitClient {
         )
       }
 
-      const published = await this.recorder.publishedPrNumber()
-      if (published !== null && published !== prNumber) {
-        throw new ToolDeniedError(
-          `Cannot merge PR ${prNumber}. This run published PR ${published}.`,
-        )
-      }
-
       const verdict = await this.recorder.latestSandboxVerdict()
       if (verdict !== 'pass') {
         throw new ToolDeniedError(`Cannot merge PR ${prNumber} without a passing sandbox result.`)
+      }
+
+      // A run may only merge a PR it is recorded as having opened. Treating a
+      // missing row as permission would let a merge through for a PR this run
+      // never published.
+      const published = await this.recorder.publishedPrNumber()
+      if (published === null) {
+        throw new ToolDeniedError(
+          `Cannot merge PR ${prNumber}. This run published no pull request.`,
+        )
+      }
+      if (published !== prNumber) {
+        throw new ToolDeniedError(
+          `Cannot merge PR ${prNumber}. This run published PR ${published}.`,
+        )
       }
 
       await this.git.mergePr(prNumber)

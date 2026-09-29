@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { getTableColumns } from 'drizzle-orm'
 import {
   createApp,
+  requiredFields,
   resourceNames,
   type JsonRecord,
   type ResourceName,
 } from '../../server/api/app.ts'
+import * as schema from '../../server/db/schema/index.ts'
 
 async function json(response: Response) {
   return (await response.json()) as {
@@ -16,9 +19,13 @@ async function json(response: Response) {
 }
 
 const payloads = {
-  users: { github_user_id: 'github-user-1' },
+  users: { username: 'octocat', github_user_id: 'github-user-1' },
   sessions: { user_id: 'user-1', token_hash: 'hash-1', expires_at: '2030-01-01T00:00:00.000Z' },
-  'github-installations': { github_installation_id: '1001' },
+  'github-installations': {
+    github_installation_id: '1001',
+    account_login: 'adamant',
+    account_type: 'Organization',
+  },
   repositories: {
     installation_id: 'installation-1',
     github_repo_id: '2001',
@@ -28,7 +35,6 @@ const payloads = {
   runs: {
     repository_id: 'repo-1',
     created_by_user_id: 'user-1',
-    base_sha: 'abc123',
     source_sha: 'abc123',
     target_branch: 'main',
   },
@@ -42,8 +48,8 @@ const payloads = {
   },
   'triage-results': {
     run_id: 'run-1',
-    category: 'test_failure',
-    details: { file: 'src/index.ts' },
+    category: 'repairable',
+    reason_code: 'assertion_failed',
   },
   'patch-attempts': {
     run_id: 'run-1',
@@ -67,6 +73,8 @@ const payloads = {
     repository_id: 'repo-1',
     github_pr_number: 42,
     pr_url: 'https://github.com/example/repo/pull/42',
+    base_sha: 'abc123',
+    candidate_hash: 'candidate-1',
   },
   'tool-invocations': {
     run_id: 'run-1',
@@ -81,17 +89,14 @@ const payloads = {
     candidate_hash: 'candidate-1',
     base_sha: 'abc123',
     decided_by_user_id: 'user-1',
-    decision_id: 'decision-1',
     action: 'approve',
-    status: 'active',
   },
   approvals: {
     run_id: 'run-1',
     run_version: 1,
     candidate_hash: 'candidate-1',
     base_sha: 'abc123',
-    action: 'merge',
-    status: 'approved',
+    decision_id: 'decision-1',
   },
   'audit-events': {
     run_id: 'run-1',
@@ -106,6 +111,68 @@ function row(body: Awaited<ReturnType<typeof json>>) {
   return body.data
 }
 
+/** The table each resource path writes to. */
+const tables = {
+  users: schema.users,
+  sessions: schema.sessions,
+  'github-installations': schema.githubInstallations,
+  repositories: schema.repositories,
+  runs: schema.runs,
+  'webhook-deliveries': schema.webhookDeliveries,
+  'triage-results': schema.triageResults,
+  'patch-attempts': schema.patchAttempts,
+  'sandbox-results': schema.sandboxResults,
+  'pr-publications': schema.prPublications,
+  'tool-invocations': schema.toolInvocations,
+  'hitl-decisions': schema.hitlDecisions,
+  approvals: schema.approvals,
+  'audit-events': schema.auditEvents,
+} as const satisfies Record<ResourceName, unknown>
+
+/** Columns a caller must supply: NOT NULL, no database default, not the key. */
+function mandatoryColumns(resource: ResourceName): string[] {
+  return Object.values(getTableColumns(tables[resource]))
+    .filter((column) => column.notNull && !column.hasDefault)
+    .map((column) => column.name)
+}
+
+function columnNames(resource: ResourceName): string[] {
+  return Object.values(getTableColumns(tables[resource])).map((column) => column.name)
+}
+
+describe('schema CRUD contract', () => {
+  it('never requires a field the table does not have', () => {
+    for (const resource of resourceNames) {
+      const columns = columnNames(resource)
+      for (const field of requiredFields[resource]) {
+        assert.ok(columns.includes(field), `${resource}.${field} is not a column`)
+      }
+    }
+  })
+
+  it('produces a row that satisfies every NOT NULL column without a default', async () => {
+    const app = createApp()
+
+    for (const resource of resourceNames) {
+      const response = await app.request(`/${resource}`, {
+        method: 'POST',
+        body: JSON.stringify(payloads[resource]),
+        headers: { 'content-type': 'application/json' },
+      })
+      assert.equal(response.status, 201, resource)
+      const created = row(await json(response))
+
+      for (const column of mandatoryColumns(resource)) {
+        assert.notEqual(
+          created[column],
+          undefined,
+          `${resource} row has no value for NOT NULL column ${column}`,
+        )
+      }
+    }
+  })
+})
+
 describe('@adamant/api DB schema endpoints', () => {
   it('keeps the health endpoint available', async () => {
     const app = createApp()
@@ -119,19 +186,14 @@ describe('@adamant/api DB schema endpoints', () => {
     const app = createApp()
     const response = await app.request('/runs', {
       method: 'POST',
-      body: JSON.stringify({ base_sha: 'abc123' }),
+      body: JSON.stringify({ target_branch: 'main' }),
       headers: { 'content-type': 'application/json' },
     })
     const body = await json(response)
 
     assert.equal(response.status, 400)
     assert.equal(body.error, 'missing required fields')
-    assert.deepEqual(body.fields, [
-      'repository_id',
-      'created_by_user_id',
-      'source_sha',
-      'target_branch',
-    ])
+    assert.deepEqual(body.fields, ['repository_id', 'source_sha'])
   })
 
   it('creates, lists, and reads a run row from the schema', async () => {
@@ -141,7 +203,6 @@ describe('@adamant/api DB schema endpoints', () => {
       body: JSON.stringify({
         repository_id: 'repo-1',
         created_by_user_id: 'user-1',
-        base_sha: 'abc123',
         source_sha: 'abc123',
         target_branch: 'main',
       }),
@@ -153,7 +214,7 @@ describe('@adamant/api DB schema endpoints', () => {
     const createdRun = row(created)
 
     assert.equal(createdRun.status, 'queued')
-    assert.equal(createdRun.version, 0)
+    assert.equal(createdRun.version, 1)
     assert.equal(createdRun.target_branch, 'main')
     assert.match(String(createdRun.idempotency_key), /^manual:/)
 
@@ -230,7 +291,7 @@ describe('@adamant/api DB schema endpoints', () => {
     const create = () =>
       app.request('/users', {
         method: 'POST',
-        body: JSON.stringify({ id: 'fixed-id', github_user_id: 'github-user-1' }),
+        body: JSON.stringify({ id: 'fixed-id', username: 'octocat' }),
         headers: { 'content-type': 'application/json' },
       })
 

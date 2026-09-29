@@ -8,7 +8,7 @@
   "conditions": {
     "ref_name": {
       "exclude": [],
-      "include": []
+      "include": ["~DEFAULT_BRANCH"]
     }
   },
   "rules": [
@@ -20,6 +20,14 @@
     },
     {
       "type": "required_linear_history"
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "required_status_checks": [{ "context": "CodeRabbit", "integration_id": 347564 }],
+        "strict_required_status_checks_policy": false,
+        "do_not_enforce_on_create": false
+      }
     },
     {
       "type": "pull_request",

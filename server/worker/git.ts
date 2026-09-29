@@ -90,11 +90,34 @@ export function assertAllowed(args: readonly string[]): void {
     }
   }
 
-  if (subcommand === 'push' && args.some((arg) => arg === '-f' || arg === '+HEAD')) {
-    throw new GitDeniedError('Force pushing is denied.')
+  if (subcommand === 'push') {
+    assertPushRefspecs(args)
   }
-  if (subcommand === 'push' && args.some((arg) => arg.startsWith('+refs/'))) {
-    throw new GitDeniedError('Force pushing is denied.')
+}
+
+/**
+ * `push` carries its destructive spellings in the refspec, not only in flags:
+ * a leading `+` on any refspec forces, and an empty source (`:refs/heads/x`)
+ * deletes the remote ref. Both are judged here rather than by matching the one
+ * spelling the agent happens to emit.
+ */
+function assertPushRefspecs(args: readonly string[]): void {
+  for (const arg of args.slice(1)) {
+    // Short forms of --force / --delete. They mean other things elsewhere
+    // (`clean -fd` is allowed), so they are only denied for push.
+    if (arg === '-f') {
+      throw new GitDeniedError('Force pushing is denied.')
+    }
+    if (arg === '-d') {
+      throw new GitDeniedError('Deleting a remote ref is denied.')
+    }
+    if (arg.startsWith('-')) continue
+    if (arg.startsWith('+')) {
+      throw new GitDeniedError('Force pushing is denied.')
+    }
+    if (arg.startsWith(':')) {
+      throw new GitDeniedError('Deleting a remote ref is denied.')
+    }
   }
 }
 

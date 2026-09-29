@@ -1,44 +1,94 @@
-import { pgTable, uuid, text, timestamp, uniqueIndex, index } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
+import { check, index, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 
 /**
- * ASSUMPTION: Authentication is GitHub-OAuth-based, matching the GitHub App-centric
- * design of the rest of the system. `githubUserId` is nullable only so the table stays
- * extensible if a second auth provider is ever added — in the current system every
- * row is expected to have one. If multi-provider auth becomes real, introduce a
- * separate `user_identities` table (user_id, provider, provider_user_id) instead of
- * adding more nullable provider columns here.
+ * Adamant user account.
+ *
+ * Authentication providers are stored separately in user_identities so that
+ * one Adamant user can be linked to multiple providers.
  */
 export const users = pgTable(
   'users',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+
     githubUserId: text('github_user_id'),
+
     username: text('username').notNull(),
+
     email: text('email'),
+
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [uniqueIndex('users_github_user_id_uidx').on(table.githubUserId)],
+  (table) => [
+    uniqueIndex('users_github_user_id_uidx').on(table.githubUserId),
+    uniqueIndex('users_email_uidx').on(sql`lower(${table.email})`),
+  ],
 )
 
 /**
- * Session tokens are never stored raw. The API generates an opaque random token,
- * returns it to the client once, and stores only its SHA-256 hash here. A session is
- * valid iff `revokedAt IS NULL AND expiresAt > now()` — enforced at the application
- * layer since PostgreSQL cannot express "compare to the current time" in a CHECK
- * constraint (CHECK constraints must be immutable at write time).
+ * OAuth identities linked to an Adamant user.
+ *
+ * We store only the provider identity, never OAuth access or refresh tokens.
+ * A provider identity is unique by (provider, provider_user_id).
+ */
+export const userIdentities = pgTable(
+  'user_identities',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+
+    provider: text('provider').notNull(),
+
+    providerUserId: text('provider_user_id').notNull(),
+
+    email: text('email'),
+
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check('user_identities_provider_check', sql`${table.provider} in ('github', 'google')`),
+    uniqueIndex('user_identities_provider_user_id_uidx').on(table.provider, table.providerUserId),
+    index('user_identities_user_id_idx').on(table.userId),
+  ],
+)
+
+/**
+ * Session tokens are never stored raw.
+ *
+ * The API generates an opaque random token, returns it to the client once,
+ * and stores only its SHA-256 hash here.
+ *
+ * A session is valid when:
+ *   revoked_at IS NULL
+ *   AND expires_at > now()
+ *
+ * The validity check is enforced by the application layer.
  */
 export const sessions = pgTable(
   'sessions',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
+
     tokenHash: text('token_hash').notNull(),
+
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
+
     lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
   },
   (table) => [

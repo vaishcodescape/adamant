@@ -8,7 +8,11 @@ import { type ResponseCreateParamsNonStreaming } from 'openai/resources/response
 import { type GitProvider, type SandboxProvider } from '../../server/agent/deps.ts'
 import { createMemoryRecorder } from '../../server/agent/recorder.ts'
 import { type OpenAiResponses } from '../../server/agent/openai.ts'
-import { graphStep, type GraphStepDependencies } from '../../server/worker/index.ts'
+import {
+  drainExpiredOAuthStates,
+  graphStep,
+  type GraphStepDependencies,
+} from '../../server/worker/index.ts'
 import { type HealRun } from '../../server/worker/runs.ts'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
@@ -284,6 +288,25 @@ describe('worker', () => {
       () => graphStep({}, { logger: { info: () => {} } }, deps()),
       /graph_step payload must be an object with runId/,
     )
+  })
+
+  it('drains expired OAuth states until a partial batch', async () => {
+    const batches = [1_000, 1_000, 17]
+    const deleted = await drainExpiredOAuthStates(async () => batches.shift() ?? 0)
+
+    assert.equal(deleted, 2_017)
+    assert.equal(batches.length, 0)
+  })
+
+  it('caps OAuth state cleanup at fifty full batches', async () => {
+    let calls = 0
+    const deleted = await drainExpiredOAuthStates(async () => {
+      calls += 1
+      return 1_000
+    })
+
+    assert.equal(calls, 50)
+    assert.equal(deleted, 50_000)
   })
 
   it('refuses to start without DATABASE_URL', async () => {

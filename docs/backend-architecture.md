@@ -400,6 +400,7 @@ HITL before merge, Electron Heal, OAuth, agent-on-checkout, fingerprints,
 
 ## Ruleset
 
-[`adamant-protocols.json`](../adamant-protocols.json) is active but
-`conditions.ref_name.include` is empty, so it matches no branches. Set
-include to `~DEFAULT_BRANCH` before relying on it for `main`.
+[`adamant-protocols.json`](../adamant-protocols.json) is the desired live ruleset. It targets
+`~DEFAULT_BRANCH` and requires CodeRabbit's native status so a pull request cannot merge while its
+review is still processing. Repository administrators keep the GitHub ruleset aligned with this
+file.

@@ -13,7 +13,9 @@ reviews:
   # assertive: more feedback than the chill default, including nitpicks -
   # this is a small repo early in Phase 1 where catching more is worth the noise.
   profile: assertive
-  request_changes_workflow: false
+  # Keep the GitHub review decision aligned with completed CodeRabbit reviews:
+  # actionable findings request changes, and a clean current commit is approved.
+  request_changes_workflow: true
   high_level_summary: true
   # Uncollapsed so the detailed walkthrough is visible without an extra click.
   collapse_walkthrough: false

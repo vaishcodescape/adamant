@@ -78,11 +78,30 @@ describe('git allowlist', () => {
       /Force pushing is denied/,
     )
     assert.throws(() => assertAllowed(['push', '--force-with-lease', 'origin', 'main']), /denied/)
+    // A leading `+` forces whatever the source side is, not only a full refname.
+    assert.throws(
+      () => assertAllowed(['push', 'origin', '+HEAD:refs/heads/adamant/run-1']),
+      /Force pushing is denied/,
+    )
+    assert.throws(() => assertAllowed(['push', 'origin', '+main']), /Force pushing is denied/)
   })
 
   it('denies deleting a remote ref and running a remote command', () => {
     assert.throws(() => assertAllowed(['push', '--delete', 'origin', 'main']), /denied/)
     assert.throws(() => assertAllowed(['fetch', '--upload-pack=sh', 'origin']), /denied/)
+    // An empty source side deletes the destination ref.
+    assert.throws(
+      () => assertAllowed(['push', 'origin', ':refs/heads/main']),
+      /Deleting a remote ref is denied/,
+    )
+    assert.throws(
+      () => assertAllowed(['push', '-d', 'origin', 'main']),
+      /Deleting a remote ref is denied/,
+    )
+  })
+
+  it('still allows the run worktree to clean itself with short flags', () => {
+    assert.doesNotThrow(() => assertAllowed(['clean', '-fd', '--quiet']))
   })
 })
 
