@@ -15,6 +15,7 @@
     "db:studio": "drizzle-kit studio --config db/drizzle.config.ts"
   },
   "dependencies": {
+    "@adamant/contract": "workspace:*",
     "@hono/node-server": "^2.1.1",
     "@langchain/core": "^1.2.12",
     "@langchain/langgraph": "^1.4.17",

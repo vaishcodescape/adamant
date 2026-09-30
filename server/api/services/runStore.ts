@@ -1,5 +1,13 @@
 import { and, desc, eq, sql } from 'drizzle-orm'
 import { randomUUID } from 'node:crypto'
+import {
+  AuditEventSchema,
+  RunDetailSchema,
+  RunSummarySchema,
+  type AuditEvent,
+  type RunDetail,
+  type RunSummary,
+} from '@adamant/contract'
 import { auditEvents, createDb, repositories, runs, type Db } from '../../db/client.ts'
 
 export type CreateRunInput = {
@@ -10,15 +18,33 @@ export type CreateRunInput = {
 }
 
 export interface RunApiStore {
-  create(input: CreateRunInput): Promise<{ run: typeof runs.$inferSelect; created: boolean }>
-  list(userId: string): Promise<readonly (typeof runs.$inferSelect)[]>
-  detail(
-    userId: string,
-    runId: string,
-  ): Promise<{
-    run: typeof runs.$inferSelect
-    auditEvents: readonly (typeof auditEvents.$inferSelect)[]
-  } | null>
+  create(input: CreateRunInput): Promise<{ run: RunSummary; created: boolean }>
+  list(userId: string): Promise<readonly RunSummary[]>
+  detail(userId: string, runId: string): Promise<RunDetail | null>
+}
+
+function toRunSummary(run: typeof runs.$inferSelect): RunSummary {
+  return RunSummarySchema.parse({
+    id: run.id,
+    repositoryId: run.repositoryId,
+    sourceSha: run.sourceSha,
+    targetBranch: run.targetBranch,
+    status: run.status,
+    version: run.version,
+    createdAt: run.createdAt.toISOString(),
+    updatedAt: run.updatedAt.toISOString(),
+  })
+}
+
+function toAuditEvent(event: typeof auditEvents.$inferSelect): AuditEvent {
+  return AuditEventSchema.parse({
+    id: event.id,
+    runId: event.runId,
+    eventType: event.eventType,
+    payload: event.payload,
+    actorUserId: event.actorUserId,
+    createdAt: event.createdAt.toISOString(),
+  })
 }
 
 export function createPostgresRunApiStore(db: Db): RunApiStore {
@@ -46,7 +72,7 @@ export function createPostgresRunApiStore(db: Db): RunApiStore {
             'graph_step', json_build_object('runId', ${runId})::json,
             job_key := ${runId}, max_attempts := 3
           )`)
-          return { run: created, created: true }
+          return { run: toRunSummary(created), created: true }
         }
 
         const existing = await tx
@@ -61,7 +87,7 @@ export function createPostgresRunApiStore(db: Db): RunApiStore {
           .limit(1)
         const run = existing[0]
         if (!run) throw new Error('Idempotent run lookup failed after insert conflict')
-        return { run, created: false }
+        return { run: toRunSummary(run), created: false }
       })
     },
 
@@ -71,6 +97,7 @@ export function createPostgresRunApiStore(db: Db): RunApiStore {
         .from(runs)
         .where(eq(runs.createdByUserId, userId))
         .orderBy(desc(runs.createdAt))
+        .then((rows) => rows.map(toRunSummary))
     },
 
     async detail(userId, runId) {
@@ -86,7 +113,10 @@ export function createPostgresRunApiStore(db: Db): RunApiStore {
         .from(auditEvents)
         .where(eq(auditEvents.runId, runId))
         .orderBy(auditEvents.createdAt)
-      return { run, auditEvents: events }
+      return RunDetailSchema.parse({
+        run: toRunSummary(run),
+        auditEvents: events.map(toAuditEvent),
+      })
     },
   }
 }

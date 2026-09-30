@@ -1,21 +1,20 @@
 import assert from 'node:assert/strict'
 import { afterEach, describe, it } from 'node:test'
+import { type RunSummary } from '@adamant/contract'
 import { createRunsRoute } from '../../server/api/routes/runs.ts'
 import { type RunApiStore } from '../../server/api/services/runStore.ts'
 
 const session = 'cli-session'
 const userId = '00000000-0000-0000-0000-000000000001'
-const run = {
+const run: RunSummary = {
   id: 'run-1',
   repositoryId: 'repo-1',
-  createdByUserId: userId,
-  idempotencyKey: 'key-1',
   sourceSha: 'abc',
   targetBranch: 'adamant/run-1',
   status: 'queued',
   version: 1,
-  createdAt: new Date(0),
-  updatedAt: new Date(0),
+  createdAt: '1970-01-01T00:00:00.000Z',
+  updatedAt: '1970-01-01T00:00:00.000Z',
 }
 
 describe('CLI run routes', () => {

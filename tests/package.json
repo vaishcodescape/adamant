@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@adamant/contract": "workspace:*",
     "@langchain/langgraph-checkpoint": "^1.1.5",
     "drizzle-orm": "^0.45.3",
     "openai": "^7.23.0"

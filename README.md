@@ -282,4 +282,3 @@ You still own what you submit.
 ## License
 
 [MIT](LICENSE) © vaishcodescape
-

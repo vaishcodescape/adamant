@@ -1,4 +1,5 @@
 packages:
+  - 'contract'
   - 'electron/*'
   - 'server'
   - 'tests'

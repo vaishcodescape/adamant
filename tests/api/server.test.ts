@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHmac } from 'node:crypto'
 import { afterEach, describe, it } from 'node:test'
+import { type RunSummary } from '@adamant/contract'
 import { createServerApp } from '../../server/api/server.ts'
 import { type RunApiStore } from '../../server/api/services/runStore.ts'
 
@@ -13,15 +14,13 @@ const store = {
     run: {
       id: 'run-1',
       repositoryId: input.repositoryId,
-      createdByUserId: input.userId,
-      idempotencyKey: input.idempotencyKey,
       sourceSha: input.sourceSha,
       targetBranch: 'adamant/run-1',
       status: 'queued',
       version: 1,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    } satisfies RunSummary,
     created: true,
   }),
   list: async () => [],

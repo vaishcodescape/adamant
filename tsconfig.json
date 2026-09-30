@@ -1,6 +1,7 @@
 {
   "files": [],
   "references": [
+    { "path": "./contract" },
     { "path": "./electron/shared" },
     { "path": "./electron/main" },
     { "path": "./electron/preload" },
