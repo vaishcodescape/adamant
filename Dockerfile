@@ -9,6 +9,8 @@ WORKDIR /app
 # Frozen install checks every workspace importer.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY server/package.json server/package.json
+COPY contract/package.json contract/package.json
+COPY tests/package.json tests/package.json
 COPY electron/adamant/package.json electron/adamant/package.json
 COPY electron/main/package.json electron/main/package.json
 COPY electron/preload/package.json electron/preload/package.json
@@ -26,6 +28,7 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/server/node_modules ./server/node_modules
 COPY server/package.json server/package.json
+COPY contract contract
 COPY server/api server/api
 COPY server/db server/db
 
