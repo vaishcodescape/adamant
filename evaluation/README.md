@@ -12,7 +12,7 @@ committed JSON and Markdown files under `evaluation/results/`. To use another re
 location:
 
 ```bash
-pnpm eval:scorecard -- --input results.json --json scorecard.json --markdown scorecard.md
+pnpm eval:scorecard --input results.json --json scorecard.json --markdown scorecard.md
 ```
 
 Each case records its name, expected and actual outcomes, baseline and patched verdicts, repair
