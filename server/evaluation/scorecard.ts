@@ -42,10 +42,12 @@ export interface EvaluationScorecard extends EvaluationSuite {
   readonly summary: EvaluationSummary
 }
 
+/** Narrow input to a non-null object, excluding arrays. */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+/** Return the original string, throwing an error naming the path for blank or non-string input. */
 function requiredString(value: unknown, path: string): string {
   if (typeof value !== 'string' || value.trim().length === 0) {
     throw new Error(`${path} must be a non-empty string`)
@@ -53,6 +55,7 @@ function requiredString(value: unknown, path: string): string {
   return value
 }
 
+/** Require a non-negative safe integer, naming the field path in validation errors. */
 function requiredNonNegativeInteger(value: unknown, path: string): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
     throw new Error(`${path} must be a non-negative integer`)
@@ -60,6 +63,7 @@ function requiredNonNegativeInteger(value: unknown, path: string): number {
   return value
 }
 
+/** Require a known outcome category, naming the field path and allowed values on failure. */
 function requiredCategory(value: unknown, path: string): EvaluationCategory {
   if (typeof value !== 'string' || !EVALUATION_CATEGORIES.some((category) => category === value)) {
     throw new Error(`${path} must be one of: ${EVALUATION_CATEGORIES.join(', ')}`)
@@ -67,11 +71,13 @@ function requiredCategory(value: unknown, path: string): EvaluationCategory {
   return value as EvaluationCategory
 }
 
+/** Allow an absent field; otherwise require a non-blank string with errors tied to its path. */
 function optionalString(value: unknown, path: string): string | undefined {
   if (value === undefined) return undefined
   return requiredString(value, path)
 }
 
+/** Validate a case with indexed field errors, preserving optional evidence when supplied. */
 function parseCase(value: unknown, index: number): EvaluationCaseResult {
   const path = `cases[${index}]`
   if (!isRecord(value)) throw new Error(`${path} must be an object`)
@@ -93,6 +99,7 @@ function parseCase(value: unknown, index: number): EvaluationCaseResult {
   }
 }
 
+/** Parse an unknown suite, throwing for a blank name, empty case list, or invalid case fields. */
 export function parseEvaluationSuite(value: unknown): EvaluationSuite {
   if (!isRecord(value)) throw new Error('evaluation input must be an object')
   if (!Array.isArray(value.cases) || value.cases.length === 0) {
@@ -105,6 +112,11 @@ export function parseEvaluationSuite(value: unknown): EvaluationSuite {
   }
 }
 
+/**
+ * Total outcomes, attempts, and elapsed time across validated cases.
+ * Exclude pending cases from the acceptable-outcome rate; return null when none were evaluated.
+ * Fixed and correct give-up/report-only cases are acceptable; round the percentage to two decimals.
+ */
 export function summarizeEvaluation(cases: readonly EvaluationCaseResult[]): EvaluationSummary {
   const categoryCounts: Record<EvaluationCategory, number> = {
     fixed: 0,
@@ -140,6 +152,7 @@ export function summarizeEvaluation(cases: readonly EvaluationCaseResult[]): Eva
   }
 }
 
+/** Attach schema version 1 and a computed summary to a validated suite, retaining its case list. */
 export function createEvaluationScorecard(suite: EvaluationSuite): EvaluationScorecard {
   return {
     schemaVersion: 1,
@@ -149,19 +162,23 @@ export function createEvaluationScorecard(suite: EvaluationSuite): EvaluationSco
   }
 }
 
+/** Serialize the scorecard with two-space indentation and a trailing newline. */
 export function renderScorecardJson(scorecard: EvaluationScorecard): string {
   return `${JSON.stringify(scorecard, null, 2)}\n`
 }
 
+/** Escape table separators and flatten line breaks so text stays within one Markdown cell. */
 function markdownCell(value: string): string {
   return value.replaceAll('|', '\\|').replaceAll(/\r?\n/g, ' ')
 }
 
+/** Display subsecond durations in milliseconds, otherwise seconds rounded to two decimal places. */
 function formatElapsed(milliseconds: number): string {
   if (milliseconds < 1_000) return `${milliseconds} ms`
   return `${Math.round((milliseconds / 1_000) * 100) / 100} s`
 }
 
+/** Render summary and case tables as Markdown, using n/a when no outcome rate is available. */
 export function renderScorecardMarkdown(scorecard: EvaluationScorecard): string {
   const { summary } = scorecard
   const acceptableRate =

@@ -13,6 +13,7 @@ const DEFAULT_INPUT = 'evaluation/fixtures/phase-1-three-case-results.json'
 const DEFAULT_JSON_OUTPUT = 'evaluation/results/phase-1-scorecard.json'
 const DEFAULT_MARKDOWN_OUTPUT = 'evaluation/results/phase-1-scorecard.md'
 
+/** Write UTF-8 output, creating parent directories, and return the absolute path. */
 async function writeOutput(path, contents) {
   const absolutePath = resolve(path)
   await mkdir(dirname(absolutePath), { recursive: true })
@@ -20,6 +21,7 @@ async function writeOutput(path, contents) {
   return absolutePath
 }
 
+/** Validate the selected input, write JSON and formatted Markdown reports, and log their paths. */
 async function main() {
   const { values } = parseArgs({
     options: {
