@@ -1,0 +1,41 @@
+{
+  "suiteName": "Phase 1 deterministic evaluation",
+  "cases": [
+    {
+      "caseName": "unit-test assertion failure",
+      "expectedOutcome": "repair and pass CI",
+      "actualOutcome": "baseline CI failed with AssertionError: 120 !== 80; Adamant repair not run",
+      "baselineVerdict": "failure",
+      "patchedVerdict": "not-run",
+      "attempts": 0,
+      "elapsedMs": 0,
+      "category": "not-evaluated",
+      "sourceSha": "bfa80377a3abe93302fa216c289df2d78f63c08f",
+      "evidenceUrl": "https://github.com/HarshPatel-404/adamant-eval-fixture/actions/runs/36555529358"
+    },
+    {
+      "caseName": "TypeScript compile failure",
+      "expectedOutcome": "repair and pass CI",
+      "actualOutcome": "baseline CI failed with TS2741 for a missing environment property; Adamant repair not run",
+      "baselineVerdict": "failure",
+      "patchedVerdict": "not-run",
+      "attempts": 0,
+      "elapsedMs": 0,
+      "category": "not-evaluated",
+      "sourceSha": "50be6fcd8a3fbb0fafafd3dfab8789de42603c1b",
+      "evidenceUrl": "https://github.com/HarshPatel-404/adamant-eval-fixture/actions/runs/36555871460"
+    },
+    {
+      "caseName": "path-security failure",
+      "expectedOutcome": "repair and pass CI",
+      "actualOutcome": "baseline CI failed because PathTraversalError was not thrown; Adamant repair not run",
+      "baselineVerdict": "failure",
+      "patchedVerdict": "not-run",
+      "attempts": 0,
+      "elapsedMs": 0,
+      "category": "not-evaluated",
+      "sourceSha": "99e369dbce2acb89b2f062becec1ee7dbdbce723",
+      "evidenceUrl": "https://github.com/HarshPatel-404/adamant-eval-fixture/actions/runs/36555971807"
+    }
+  ]
+}
