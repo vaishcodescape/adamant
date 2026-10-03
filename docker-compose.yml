@@ -53,10 +53,22 @@ services:
       ADAMANT_SANDBOX_IMAGE: ${ADAMANT_SANDBOX_IMAGE:-node:22-bookworm-slim}
       ADAMANT_SANDBOX_INSTALL: ${ADAMANT_SANDBOX_INSTALL:-npm ci --no-audit --no-fund}
       ADAMANT_SANDBOX_TEST: ${ADAMANT_SANDBOX_TEST:-npm test}
+      ADAMANT_WORKER_CONCURRENCY: ${ADAMANT_WORKER_CONCURRENCY:-2}
+      ADAMANT_WORKSPACE_ROOT: ${ADAMANT_WORKSPACE_ROOT:-/tmp/adamant-workspaces}
     # The sandbox starts one container per candidate, so the worker needs a
     # Docker socket. Nothing is mounted into the sandbox container itself.
+    #
+    # That container is started by the host's daemon, which resolves the
+    # worktree bind mount on the host, so the workspace root is mounted at the
+    # same path on both sides. Create it first and let uid 1000 write to it:
+    #   mkdir -p /tmp/adamant-workspaces && chown 1000 /tmp/adamant-workspaces
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - ${ADAMANT_WORKSPACE_ROOT:-/tmp/adamant-workspaces}:${ADAMANT_WORKSPACE_ROOT:-/tmp/adamant-workspaces}
+    # The worker runs as `node`; the socket belongs to the host's docker group.
+    # On Linux: DOCKER_GID=$(stat -c %g /var/run/docker.sock).
+    group_add:
+      - ${DOCKER_GID:-0}
     depends_on:
       postgres:
         condition: service_healthy

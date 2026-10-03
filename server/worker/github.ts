@@ -158,16 +158,23 @@ export function createGitHubClient(config: GitHubAppConfig, fetchImpl?: FetchLik
         return ''
       }
 
-      const sections: string[] = []
-      for (const run of failedRuns) {
-        const jobs = await json<{ jobs?: WorkflowJob[] }>(
-          token,
-          'GET',
-          `/repos/${repo}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`,
-        )
+      // Runs, then their jobs, then the failed jobs' logs: each level is fetched
+      // concurrently. Promise.all keeps the order, so the joined log is stable.
+      const jobLists = await Promise.all(
+        failedRuns.map((run) =>
+          json<{ jobs?: WorkflowJob[] }>(
+            token,
+            'GET',
+            `/repos/${repo}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`,
+          ),
+        ),
+      )
+      const failedJobs = jobLists.flatMap((list) =>
+        (list.jobs ?? []).filter((job) => job.conclusion === 'failure'),
+      )
 
-        for (const job of jobs.jobs ?? []) {
-          if (job.conclusion !== 'failure') continue
+      const sections = await Promise.all(
+        failedJobs.map(async (job) => {
           const logs = await call(
             token,
             'GET',
@@ -176,9 +183,9 @@ export function createGitHubClient(config: GitHubAppConfig, fetchImpl?: FetchLik
             'text/plain',
           )
           const text = await logs.text()
-          sections.push(`=== job: ${job.name} ===\n${text.slice(-MAX_JOB_LOG_CHARS)}`)
-        }
-      }
+          return `=== job: ${job.name} ===\n${text.slice(-MAX_JOB_LOG_CHARS)}`
+        }),
+      )
 
       return sections.join('\n\n')
     },

@@ -85,6 +85,6 @@ async function setStatus(db: Db, runId: string, status: 'running' | 'succeeded' 
     .where(eq(runs.id, runId))
 }
 
-export function createWorkerDb(url: string) {
-  return createDb(url)
+export function createWorkerDb(url: string, maxConnections?: number) {
+  return createDb(url, maxConnections ? { maxConnections } : {})
 }
