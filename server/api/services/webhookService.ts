@@ -39,7 +39,12 @@ type EventPayload = {
   action?: string
   installation?: InstallationPayload
   repository?: RepositoryPayload
-  workflow_run?: { conclusion?: string; head_sha?: string }
+  workflow_run?: {
+    conclusion?: string
+    head_sha?: string
+    head_branch?: string | null
+    head_repository?: { id?: number } | null
+  }
   pull_request?: { merged?: boolean; number?: number }
 }
 
@@ -48,6 +53,25 @@ export class DuplicateDeliveryError extends Error {
     super('Duplicate delivery')
     this.name = 'DuplicateDeliveryError'
   }
+}
+
+/**
+ * The heal PR is built on `head_sha` and merged into the default branch, so a
+ * failure anywhere else would merge someone else's commits along with the fix:
+ * a fork's pull request, a feature branch, or one of our own `adamant/*` PRs
+ * (which would also heal itself in a loop). Missing fields fail closed.
+ */
+function failedOnDefaultBranch(payload: EventPayload): boolean {
+  const run = payload.workflow_run
+  const repositoryId = payload.repository?.id
+  const defaultBranch = payload.repository?.default_branch
+
+  return (
+    Boolean(defaultBranch) &&
+    run?.head_branch === defaultBranch &&
+    repositoryId !== undefined &&
+    run?.head_repository?.id === repositoryId
+  )
 }
 
 const digest = (payload: unknown) =>
@@ -95,13 +119,17 @@ export function createWebhookService(deps: WebhookDependencies) {
 
     const headSha = payload.workflow_run.head_sha
     if (!repositoryRowId || !headSha) return null
+    if (!failedOnDefaultBranch(payload)) return null
 
+    // One heal per commit. Each failing workflow sends its own delivery, and
+    // the heal already reads every failed job at this SHA, so a second run
+    // would only race the first to a competing PR.
     const runId = randomUUID()
     const created = await store.createQueuedRun({
       runId,
       repositoryId: repositoryRowId,
       sourceSha: headSha,
-      idempotencyKey: `webhook:${deliveryId}`,
+      idempotencyKey: `workflow_run:${headSha}`,
     })
 
     if (!created) return null

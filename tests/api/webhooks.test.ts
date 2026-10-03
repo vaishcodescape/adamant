@@ -136,11 +136,17 @@ describe('GitHub webhook', () => {
 })
 
 describe('webhook triggers a heal', () => {
+  const failedRun = {
+    conclusion: 'failure',
+    head_sha: 'deadbeef',
+    head_branch: 'main',
+    head_repository: { id: repository.id },
+  }
   const failedWorkflow = {
     action: 'completed',
     installation,
     repository,
-    workflow_run: { conclusion: 'failure', head_sha: 'deadbeef' },
+    workflow_run: failedRun,
   }
 
   it('queues a run and enqueues graph_step for a failed workflow run', async () => {
@@ -160,7 +166,7 @@ describe('webhook triggers a heal', () => {
       {
         sourceSha: 'deadbeef',
         repositoryId: 'repository-1234',
-        idempotencyKey: 'webhook:delivery-red',
+        idempotencyKey: 'workflow_run:deadbeef',
       },
     )
   })
@@ -183,7 +189,7 @@ describe('webhook triggers a heal', () => {
 
     const green = await webhooks.processEvent('delivery-green', 'workflow_run', {
       ...failedWorkflow,
-      workflow_run: { conclusion: 'success', head_sha: 'deadbeef' },
+      workflow_run: { ...failedRun, conclusion: 'success' },
     })
     const running = await webhooks.processEvent('delivery-running', 'workflow_run', {
       ...failedWorkflow,
@@ -201,10 +207,45 @@ describe('webhook triggers a heal', () => {
 
     const result = await webhooks.processEvent('delivery-unbound', 'workflow_run', {
       action: 'completed',
-      workflow_run: { conclusion: 'failure', head_sha: 'deadbeef' },
+      workflow_run: failedRun,
     })
 
     assert.equal(result.runId, null)
+    assert.equal(store.queuedRuns.length, 0)
+    assert.equal(enqueued.length, 0)
+  })
+
+  it('starts one heal per commit when several workflows fail on it', async () => {
+    const { store, enqueued, webhooks } = service()
+
+    const first = await webhooks.processEvent('delivery-ci', 'workflow_run', failedWorkflow)
+    const second = await webhooks.processEvent('delivery-lint', 'workflow_run', failedWorkflow)
+
+    assert.ok(first.runId)
+    assert.equal(second.runId, null)
+    assert.equal(store.queuedRuns.length, 1)
+    assert.equal(enqueued.length, 1)
+    assert.equal(store.deliveries.has('delivery-lint'), true)
+  })
+
+  it('never heals a failure that would merge commits from elsewhere', async () => {
+    const { store, enqueued, webhooks } = service()
+    const cases = {
+      'fork pull request': { head_branch: 'main', head_repository: { id: 999 } },
+      'feature branch': { head_branch: 'feature/login' },
+      'our own heal PR': { head_branch: 'adamant/00000000-0000-0000-0000-000000000000' },
+      'no head branch': { head_branch: null },
+      'no head repository': { head_repository: null },
+    }
+
+    for (const [name, override] of Object.entries(cases)) {
+      const result = await webhooks.processEvent(`delivery-${name}`, 'workflow_run', {
+        ...failedWorkflow,
+        workflow_run: { ...failedRun, head_sha: name, ...override },
+      })
+      assert.equal(result.runId, null, name)
+    }
+
     assert.equal(store.queuedRuns.length, 0)
     assert.equal(enqueued.length, 0)
   })
