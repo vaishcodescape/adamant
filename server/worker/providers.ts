@@ -29,6 +29,7 @@ export function createUnavailableGitProvider(): GitProvider {
     openPr: async () => unavailable('open_pull_request'),
     mergePr: async () => unavailable('merge_pull_request'),
     getFailureLogs: async () => unavailable('get_failure_logs'),
+    readFile: async () => unavailable('git_read_file'),
   }
 }
 

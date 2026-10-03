@@ -5,10 +5,14 @@ import * as path from 'node:path'
 import { afterEach, describe, it } from 'node:test'
 import {
   assertAllowed,
+  execGit,
   GitWorkspace,
   type ExecGit,
   type ExecResult,
 } from '../../server/worker/git.ts'
+
+const SHA = 'deadbeef'.repeat(5)
+const BASE_SHA = 'ba5e'.repeat(10)
 
 const workspaces: string[] = []
 
@@ -139,7 +143,7 @@ describe('GitWorkspace', () => {
     const ws = await workspace(exec)
 
     await ws.init()
-    await ws.fetchSha('deadbeef')
+    await ws.fetchSha(SHA)
 
     assert.equal(ws.remoteUrl, 'https://x-access-token@github.com/acme/eval.git')
     for (const call of calls) {
@@ -155,7 +159,7 @@ describe('GitWorkspace', () => {
     const ws = await workspace(exec)
 
     await ws.init()
-    await ws.fetchSha('deadbeef')
+    await ws.fetchSha(SHA)
 
     const unauthenticated = calls.find((call) => call.args[0] === 'init')
     const authenticated = calls.find((call) => call.args[0] === 'fetch')
@@ -175,7 +179,7 @@ describe('GitWorkspace', () => {
     const ws = await workspace(exec)
 
     await ws.init()
-    await ws.fetchSha('deadbeef')
+    await ws.fetchSha(SHA)
     const helper = String(calls.find((call) => call.args[0] === 'fetch')?.env.GIT_ASKPASS)
 
     await ws.cleanup()
@@ -188,15 +192,22 @@ describe('GitWorkspace', () => {
     const { calls, exec } = recordingExec()
     const ws = await workspace(exec)
 
-    await ws.checkout('basesha')
+    await ws.checkout(BASE_SHA)
     await ws.applyPatch('diff --git a/x b/x')
 
     assert.deepEqual(
       calls.map((call) => call.args[0]),
       ['checkout', 'reset', 'clean', 'apply'],
     )
-    assert.deepEqual(calls[1]?.args, ['reset', '--hard', '--quiet', 'basesha'])
-    assert.equal(calls.at(-1)?.input, 'diff --git a/x b/x')
+    assert.deepEqual(calls[1]?.args, ['reset', '--hard', '--quiet', BASE_SHA])
+    assert.deepEqual(calls.at(-1)?.args, [
+      'apply',
+      '--index',
+      '--recount',
+      '--whitespace=nowarn',
+      '-',
+    ])
+    assert.equal(calls.at(-1)?.input, 'diff --git a/x b/x\n')
   })
 
   it('refuses to apply a patch before a base commit is checked out', async () => {
@@ -213,7 +224,132 @@ describe('GitWorkspace', () => {
         : { code: 0, stdout: '', stderr: '' }
     const ws = await workspace(exec)
 
-    await ws.checkout('basesha')
+    await ws.checkout(BASE_SHA)
     await assert.rejects(ws.applyPatch('diff'), /patch does not apply/)
+  })
+
+  it('refuses a commit id that git could read as an option', async () => {
+    const { calls, exec } = recordingExec()
+    const ws = await workspace(exec)
+
+    for (const sha of ['--upload-pack=touch /tmp/x', '-uevil', 'abc123', 'HEAD', `${SHA}x`]) {
+      await assert.rejects(ws.fetchSha(sha), /full commit SHA/)
+      await assert.rejects(ws.checkout(sha), /full commit SHA/)
+    }
+    assert.equal(calls.length, 0)
+  })
+
+  it('starts from an empty worktree when a crashed run left one behind', async () => {
+    const { calls, exec } = recordingExec()
+    const ws = await workspace(exec)
+    await fs.writeFile(path.join(ws.dir, 'stale.txt'), 'from the dead worker')
+
+    await ws.init()
+
+    await assert.rejects(fs.access(path.join(ws.dir, 'stale.txt')))
+    assert.equal(calls[0]?.args[0], 'init')
+  })
+})
+
+/**
+ * The same class driving the real git binary. The fakes above pin the argv;
+ * these pin what git actually does with it.
+ */
+describe('GitWorkspace against real git', () => {
+  afterEach(async () => {
+    await Promise.all(
+      workspaces.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })),
+    )
+  })
+
+  async function repoWithBase() {
+    const dir = await tempDir()
+    const ws = new GitWorkspace({
+      runId: 'run-real',
+      dir,
+      owner: 'acme',
+      name: 'eval',
+      token: async () => 'unused',
+    })
+    await ws.init()
+    await fs.mkdir(path.join(dir, 'src'))
+    await fs.writeFile(
+      path.join(dir, 'src/sum.ts'),
+      'export function sum(a, b) {\n  return a - b\n}\n',
+    )
+    await fs.writeFile(path.join(dir, '.gitignore'), 'node_modules\n')
+    const env = { PATH: process.env.PATH ?? '', HOME: dir, GIT_CONFIG_GLOBAL: '/dev/null' }
+    for (const args of [
+      ['add', '--all'],
+      ['commit', '--quiet', '-m', 'base'],
+      ['rev-parse', 'HEAD'],
+    ]) {
+      const result = await execGit(args, { cwd: dir, env })
+      assert.equal(result.code, 0, result.stderr)
+      if (args[0] === 'rev-parse') await ws.checkout(result.stdout.trim())
+    }
+    return { dir, ws, env }
+  }
+
+  const fix = [
+    'diff --git a/src/sum.ts b/src/sum.ts',
+    '--- a/src/sum.ts',
+    '+++ b/src/sum.ts',
+    '@@ -1,3 +1,3 @@',
+    ' export function sum(a, b) {',
+    '-  return a - b',
+    '+  return a + b',
+    ' }',
+  ].join('\n')
+
+  it('applies a diff whose final newline was trimmed away', async () => {
+    const { dir, ws } = await repoWithBase()
+
+    await ws.applyPatch(fix)
+
+    assert.match(await fs.readFile(path.join(dir, 'src/sum.ts'), 'utf8'), /return a \+ b/)
+  })
+
+  it('applies a diff whose hunk header miscounts its lines', async () => {
+    const { dir, ws } = await repoWithBase()
+
+    await ws.applyPatch(fix.replace('@@ -1,3 +1,3 @@', '@@ -1,7 +1,9 @@'))
+
+    assert.match(await fs.readFile(path.join(dir, 'src/sum.ts'), 'utf8'), /return a \+ b/)
+  })
+
+  it('commits the candidate and nothing the sandbox wrote', async () => {
+    const { dir, ws, env } = await repoWithBase()
+    await ws.applyPatch(fix)
+    await fs.writeFile(path.join(dir, 'coverage.json'), '{}')
+    await fs.mkdir(path.join(dir, 'node_modules'))
+    await fs.writeFile(path.join(dir, 'node_modules/dep.js'), '')
+
+    await ws.commitCandidate('fix: sum')
+
+    const files = await execGit(['show', '--name-only', '--format=', 'HEAD'], { cwd: dir, env })
+    assert.deepEqual(files.stdout.trim().split('\n'), ['src/sum.ts'])
+  })
+
+  it('reads a file by the absolute path a CI runner printed', async () => {
+    const { ws } = await repoWithBase()
+
+    const found = await ws.readFile('/home/runner/work/eval/eval/src/sum.ts')
+
+    assert.equal(found?.path, 'src/sum.ts')
+    assert.match(found?.text ?? '', /return a - b/)
+  })
+
+  it('reads nothing outside the worktree or inside .git', async () => {
+    const { dir, ws } = await repoWithBase()
+    const outside = await tempDir()
+    await fs.writeFile(path.join(outside, 'secret.txt'), 'nope')
+    await fs.symlink(path.join(outside, 'secret.txt'), path.join(dir, 'link.txt'))
+
+    assert.equal(await ws.readFile('../secret.txt'), null)
+    assert.equal(await ws.readFile(path.join(outside, 'secret.txt')), null)
+    assert.equal(await ws.readFile('link.txt'), null)
+    assert.equal(await ws.readFile('.git/config'), null)
+    assert.equal(await ws.readFile('src'), null)
   })
 })

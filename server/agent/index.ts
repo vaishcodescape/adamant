@@ -14,6 +14,7 @@ export {
   type LlmProvider,
   type PreviousAttempt,
   type PullRequestRef,
+  type SourceExcerpt,
 } from './deps.ts'
 export {
   createMemoryRecorder,
@@ -22,6 +23,8 @@ export {
   type RunRecorder,
   type SandboxVerdict,
 } from './recorder.ts'
-export { describeFailure, parseFailure, type FailureContext } from './triage.ts'
+export { describeFailure, findLocations, parseFailure, type FailureContext } from './triage.ts'
+export { describeSources, readSources } from './sources.ts'
+export { normalizePatch } from './patch.ts'
 export { buildCommitMessage, buildPrBody, buildPrTitle } from './pr.ts'
 export { ALLOWED_GIT_TOOLS, SecureGitClient, ToolDeniedError } from './tools.ts'

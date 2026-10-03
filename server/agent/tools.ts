@@ -16,6 +16,7 @@ export const ALLOWED_GIT_TOOLS = [
   'open_pull_request',
   'merge_pull_request',
   'get_failure_logs',
+  'git_read_file',
 ] as const
 
 export type GitToolName = (typeof ALLOWED_GIT_TOOLS)[number]
@@ -121,6 +122,11 @@ export class SecureGitClient {
 
   async getFailureLogs(): Promise<string> {
     return this.guarded('get_failure_logs', {}, () => this.git.getFailureLogs())
+  }
+
+  /** Read-only and confined to the run's worktree by the provider. Content is not logged. */
+  async readFile(fromLog: string): Promise<{ path: string; text: string } | null> {
+    return this.guarded('git_read_file', { path: fromLog }, () => this.git.readFile(fromLog))
   }
 
   /** Named dispatch for anything that reaches the gateway by name. Fails closed. */

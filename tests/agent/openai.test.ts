@@ -18,6 +18,7 @@ const git = {
   openPr: async () => ({ number: 1, url: 'https://github.com/acme/demo/pull/1' }),
   mergePr: async () => {},
   getFailureLogs: async () => 'Error: boom at src/app.ts:10',
+  readFile: async () => null,
 } as GitProvider
 
 const sandbox = {
@@ -68,6 +69,7 @@ describe('OpenAI heal model', () => {
       const { calls, client } = recordingClient()
       await createOpenAiLlm({ client }).plan({
         failure: { firstError: null, location: null, failingTests: [], excerpt: '' },
+        sources: [],
         diagnostics: 'd',
       })
       assert.equal(calls[0]?.model, 'gpt-6')
@@ -95,7 +97,8 @@ describe('OpenAI heal model', () => {
     assert.equal(finalState.status, 'completed')
     assert.equal(finalState.diagnostics, 'step-1')
     assert.equal(finalState.plan, 'step-2')
-    assert.equal(finalState.candidatePatch, 'step-3')
+    // Normalized for `git apply`: the trimmed reply gets its final newline back.
+    assert.equal(finalState.candidatePatch, 'step-3\n')
     assert.deepEqual(
       calls.map((call) => call.reasoning?.effort),
       ['low', 'low', 'high'],
@@ -113,6 +116,29 @@ describe('OpenAI heal model', () => {
     const diagnoseInput = calls[0]?.input
     assert.equal(typeof diagnoseInput, 'string')
     assert.match(String(diagnoseInput), /src\/app\.ts:10/)
+  })
+
+  it('opens every step with the same failure and source block so the prefix caches', async () => {
+    const { calls, client } = recordingClient()
+    const sourceGit = {
+      ...git,
+      readFile: async () => ({ path: 'src/app.ts', text: 'export const answer = 41\n' }),
+    } as GitProvider
+    const graph = compileOpenAiHealGraph(
+      { git: sourceGit, sandbox, recorder: createMemoryRecorder() },
+      { client, model: 'gpt-6' },
+    )
+
+    await graph.invoke({ runId: 'run-cache', repository, baseSha: 'abc' })
+
+    const inputs = calls.map((call) => String(call.input))
+    const shared = inputs[0]?.slice(0, inputs[0].indexOf('\nTask:'))
+    assert.ok(shared, 'diagnose has a shared block before its task')
+    assert.match(shared, /Source src\/app\.ts \(lines 1-1\):\nexport const answer = 41/)
+    for (const input of inputs) {
+      assert.ok(input.startsWith(shared), 'every step starts with the identical block')
+      assert.match(input.split('\n').at(-1) ?? '', /^Task: /, 'the task comes last')
+    }
   })
 
   it('shows the rejected candidate to the next diagnose so the retry differs', async () => {

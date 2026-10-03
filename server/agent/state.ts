@@ -1,4 +1,5 @@
 import { Annotation } from '@langchain/langgraph'
+import { type SourceExcerpt } from './deps.ts'
 import { type FailureContext } from './triage.ts'
 
 export interface RepositoryInfo {
@@ -15,7 +16,9 @@ export interface SandboxResult {
   readonly commands: readonly string[]
 }
 
-const last = <T>(a: T, b: T | undefined) => b ?? a
+// Keep the old value only when a node did not write the key. `b ?? a` also
+// ignored an explicit null, so a field could never be cleared.
+const last = <T>(a: T, b: T | undefined) => (b === undefined ? a : b)
 
 export const AgentStateAnnotation = Annotation.Root({
   runId: Annotation<string>(),
@@ -39,6 +42,8 @@ export const AgentStateAnnotation = Annotation.Root({
   }),
   /** Parsed once in retrieve; every later attempt reuses it. */
   failure: Annotation<FailureContext | null>({ reducer: last, default: () => null }),
+  /** Read once in retrieve, beside the failure, and shown to every model step. */
+  sources: Annotation<readonly SourceExcerpt[]>({ reducer: last, default: () => [] }),
   diagnostics: Annotation<string | null>({ reducer: last, default: () => null }),
   plan: Annotation<string | null>({ reducer: last, default: () => null }),
   candidatePatch: Annotation<string | null>({ reducer: last, default: () => null }),

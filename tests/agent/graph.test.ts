@@ -26,6 +26,7 @@ const mockGit = (overrides: Partial<GitProvider> = {}): GitProvider => ({
   openPr: async () => ({ number: 123, url: 'https://github.com/test/repo/pull/123' }),
   mergePr: async () => {},
   getFailureLogs: async () => 'Error: boom at src/app.ts:10',
+  readFile: async () => null,
   ...overrides,
 })
 
@@ -303,6 +304,7 @@ describe('SecureGitClient Tool Boundary', () => {
         sourceSha: null,
         status: 'sandboxing',
         failure: null,
+        sources: [],
         diagnostics: null,
         plan: null,
         candidatePatch: null,

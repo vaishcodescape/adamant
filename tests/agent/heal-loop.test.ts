@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { compileHealGraph } from '../../server/agent/graph.ts'
-import { type GitProvider, type SandboxOutcome } from '../../server/agent/deps.ts'
+import { type GitProvider, type LlmProvider, type SandboxOutcome } from '../../server/agent/deps.ts'
 import { createMemoryRecorder, type MemoryRecorder } from '../../server/agent/recorder.ts'
 
 /**
@@ -53,6 +53,10 @@ function fakeGit(journal: Journal, overrides: Partial<GitProvider> = {}): GitPro
       journal.merged.push(prNumber)
     },
     getFailureLogs: async () => failingLog,
+    readFile: async (fromLog) =>
+      fromLog === 'src/sum.ts'
+        ? { path: 'src/sum.ts', text: 'export function sum(a, b) {\n  return a - b\n}\n' }
+        : null,
     ...overrides,
   }
 }
@@ -61,12 +65,15 @@ function journal(): Journal {
   return { calls: [], branches: [], merged: [], prBase: [], applied: [] }
 }
 
-function scriptedLlm(patches: readonly string[]) {
+function scriptedLlm(patches: readonly string[], seen: Parameters<LlmProvider['patch']>[0][] = []) {
   let index = 0
   return {
     diagnose: async () => 'Assertion in src/sum.ts returns the wrong total.',
     plan: async () => 'Fix the addition in src/sum.ts.',
-    patch: async () => patches[Math.min(index++, patches.length - 1)] ?? 'diff',
+    patch: async (input: Parameters<LlmProvider['patch']>[0]) => {
+      seen.push(input)
+      return patches[Math.min(index++, patches.length - 1)] ?? 'diff'
+    },
   }
 }
 
@@ -142,7 +149,7 @@ describe('autonomous heal loop', () => {
     assert.equal(finalState.status, 'completed')
     assert.equal(finalState.attemptNumber, 2)
     assert.equal(log.calls.filter((call) => call === 'push').length, 1)
-    assert.deepEqual(log.applied, ['first candidate', 'second candidate'])
+    assert.deepEqual(log.applied, ['first candidate\n', 'second candidate\n'])
     assert.deepEqual(
       recorder.sandboxes.map((row) => row.verdict),
       ['fail', 'pass'],
@@ -178,7 +185,46 @@ describe('autonomous heal loop', () => {
       recorder.patches.map((row) => row.outcome),
       ['generation_error', 'success'],
     )
-    assert.deepEqual(log.applied, ['good diff'])
+    assert.deepEqual(log.applied, ['good diff\n'])
+  })
+
+  it('clears the last sandbox verdict when the next diff does not apply', async () => {
+    let applies = 0
+    const graph = compileHealGraph({
+      git: fakeGit(journal(), {
+        applyPatch: async () => {
+          applies += 1
+          if (applies === 2) throw new Error('error: patch does not apply')
+        },
+      }),
+      sandbox: sandboxScript([fail]),
+      llm: scriptedLlm(['first', 'second']),
+      recorder: createMemoryRecorder(),
+    })
+
+    const finalState = await graph.invoke({ runId: 'run-79b', repository, baseSha: 'abc' })
+
+    assert.equal(finalState.status, 'failed')
+    assert.equal(finalState.sandboxResult, null, 'attempt 1 verdict must not outlive attempt 2')
+  })
+
+  it('shows the model the source the failure points at', async () => {
+    const seen: Parameters<LlmProvider['patch']>[0][] = []
+    const graph = compileHealGraph({
+      git: fakeGit(journal()),
+      sandbox: sandboxScript([pass]),
+      llm: scriptedLlm(['```diff\n--- a/src/sum.ts\n+++ b/src/sum.ts\n```'], seen),
+      recorder: createMemoryRecorder(),
+    })
+
+    const finalState = await graph.invoke({ runId: 'run-79c', repository, baseSha: 'abc' })
+
+    assert.deepEqual(
+      seen[0]?.sources.map((source) => [source.path, source.startLine]),
+      [['src/sum.ts', 1]],
+    )
+    assert.match(seen[0]?.sources[0]?.text ?? '', /return a - b/)
+    assert.equal(finalState.candidatePatch, '--- a/src/sum.ts\n+++ b/src/sum.ts\n')
   })
 
   it('gives up without opening a PR when every candidate fails', async () => {
@@ -240,6 +286,7 @@ describe('autonomous heal loop', () => {
         'git_fetch',
         'git_checkout',
         'get_failure_logs',
+        'git_read_file',
         'git_apply_patch',
         'git_commit',
         'git_push',
