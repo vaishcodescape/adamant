@@ -491,12 +491,16 @@ describe('Activity from the database', () => {
   it('keeps an idle stream open with heartbeat comments', async () => {
     const app = createActivityRoute(createActivityService(), { heartbeatMs: 5 })
     const controller = new AbortController()
+    // The heartbeat is unref'd so it never holds a process open; in production
+    // the HTTP server does. Here nothing else would, so hold the loop meanwhile.
+    const keepAlive = setTimeout(() => {}, 5_000)
     try {
       const res = await app.request('/', { signal: controller.signal })
       assert.ok(res.body)
       const frame = await readStreamFrame(res.body)
       assert.match(frame, /^: ping/m)
     } finally {
+      clearTimeout(keepAlive)
       controller.abort()
     }
   })
