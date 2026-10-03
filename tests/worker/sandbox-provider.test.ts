@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import * as fs from 'node:fs/promises'
+import * as os from 'node:os'
+import * as path from 'node:path'
 import { describe, it } from 'node:test'
 import { createDockerSandboxProvider } from '../../server/worker/sandbox-provider.ts'
 import type { SandboxExecutionOptions, SandboxResult } from '../../server/sandbox/types.ts'
@@ -136,5 +139,104 @@ describe('sandbox provider', () => {
 
     assert.equal(seen[0]?.workdir, 'packages/backend')
     assert.equal(seen[1]?.workdir, 'packages/backend')
+  })
+})
+
+describe('sandbox install reuse across candidates', () => {
+  async function workspace() {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'adamant-sandbox-test-'))
+    await fs.writeFile(path.join(dir, 'package.json'), '{"name":"eval"}')
+    await fs.writeFile(path.join(dir, 'package-lock.json'), '{"lockfileVersion":3}')
+    return dir
+  }
+
+  /** An install that leaves node_modules in the workspace, as `npm ci` does. */
+  function installingDocker(dir: string, installResult: SandboxResult = ok) {
+    const commands: string[] = []
+    const sandbox = {
+      run: async (options: SandboxExecutionOptions) => {
+        commands.push(options.command)
+        if (options.command === 'npm ci' && installResult.success) {
+          await fs.mkdir(path.join(dir, 'node_modules'), { recursive: true })
+        }
+        return options.command === 'npm ci' ? installResult : ok
+      },
+    }
+    return { commands, sandbox }
+  }
+
+  function sandboxFor(dir: string, docker: ReturnType<typeof installingDocker>) {
+    return createDockerSandboxProvider({
+      runId: 'run-1',
+      workspacePath: dir,
+      installCommand: 'npm ci',
+      testCommand: 'npm test',
+      sandbox: docker.sandbox,
+    })
+  }
+
+  it('skips the install for a candidate that left every manifest alone', async () => {
+    const dir = await workspace()
+    try {
+      const docker = installingDocker(dir)
+      const sandbox = sandboxFor(dir, docker)
+
+      await sandbox.runValidation({ attemptNumber: 1, candidateHash: 'a' })
+      const second = await sandbox.runValidation({ attemptNumber: 2, candidateHash: 'b' })
+
+      assert.deepEqual(docker.commands, ['npm ci', 'npm test', 'npm test'])
+      assert.equal(second.verdict, 'pass')
+      assert.deepEqual(second.commands, ['npm ci', 'npm test'], 'what was verified is unchanged')
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('reinstalls when a candidate changes a lockfile', async () => {
+    const dir = await workspace()
+    try {
+      const docker = installingDocker(dir)
+      const sandbox = sandboxFor(dir, docker)
+
+      await sandbox.runValidation({ attemptNumber: 1, candidateHash: 'a' })
+      await fs.writeFile(path.join(dir, 'package-lock.json'), '{"lockfileVersion":3,"x":1}')
+      await sandbox.runValidation({ attemptNumber: 2, candidateHash: 'b' })
+
+      assert.deepEqual(docker.commands, ['npm ci', 'npm test', 'npm ci', 'npm test'])
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('reinstalls when the reset between candidates removed what install wrote', async () => {
+    const dir = await workspace()
+    try {
+      const docker = installingDocker(dir)
+      const sandbox = sandboxFor(dir, docker)
+
+      await sandbox.runValidation({ attemptNumber: 1, candidateHash: 'a' })
+      await fs.rm(path.join(dir, 'node_modules'), { recursive: true })
+      await sandbox.runValidation({ attemptNumber: 2, candidateHash: 'b' })
+
+      assert.deepEqual(docker.commands, ['npm ci', 'npm test', 'npm ci', 'npm test'])
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('never reuses an install that failed', async () => {
+    const dir = await workspace()
+    try {
+      const docker = installingDocker(dir, { ...ok, success: false, exitCode: 1 })
+      const sandbox = sandboxFor(dir, docker)
+
+      const first = await sandbox.runValidation({ attemptNumber: 1, candidateHash: 'a' })
+      await sandbox.runValidation({ attemptNumber: 2, candidateHash: 'b' })
+
+      assert.equal(first.verdict, 'fail')
+      assert.deepEqual(docker.commands, ['npm ci', 'npm ci'])
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
   })
 })

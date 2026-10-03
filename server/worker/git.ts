@@ -55,6 +55,18 @@ const DENIED_FLAGS = new Set([
 
 const MAX_OUTPUT_CHARS = 256 * 1024
 const DEFAULT_TIMEOUT_MS = 120_000
+/** A source file larger than this is cut; the prompt only shows a window of it. */
+const MAX_READ_BYTES = 256 * 1024
+
+// Full object ids only. Anything else could be read as an option by
+// `fetch` / `checkout`, and a short id cannot be fetched by want.
+const COMMIT_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i
+
+function assertCommitSha(sha: string): void {
+  if (!COMMIT_SHA.test(sha)) {
+    throw new GitDeniedError('Expected a full commit SHA.')
+  }
+}
 
 export class GitDeniedError extends Error {
   constructor(message: string) {
@@ -202,6 +214,9 @@ export class GitWorkspace {
   }
 
   async init(): Promise<void> {
+    // A worker that died mid-run leaves this run's worktree behind, and the
+    // retry would then fail on `remote add`. The path is this run's own.
+    await fs.rm(this.options.dir, { recursive: true, force: true })
     await fs.mkdir(this.options.dir, { recursive: true })
     await this.run(['init', '--quiet'])
     await this.run(['config', 'user.name', 'adamant[bot]'])
@@ -212,10 +227,12 @@ export class GitWorkspace {
 
   /** Shallow fetch of one commit. A full clone per run is the slow path. */
   async fetchSha(sha: string): Promise<void> {
+    assertCommitSha(sha)
     await this.run(['fetch', '--depth', '1', '--quiet', 'origin', sha], { authenticated: true })
   }
 
   async checkout(sha: string): Promise<void> {
+    assertCommitSha(sha)
     await this.run(['checkout', '--quiet', '--detach', sha])
     this.baseSha = sha
   }
@@ -230,12 +247,57 @@ export class GitWorkspace {
     }
     await this.run(['reset', '--hard', '--quiet', this.baseSha])
     await this.run(['clean', '-fd', '--quiet'])
-    await this.run(['apply', '--index', '--whitespace=nowarn', '-'], { input: patch })
+    // git rejects a last hunk without its newline as a corrupt patch, and
+    // `--recount` ignores hunk-header line counts, which models often get wrong.
+    const input = patch.endsWith('\n') ? patch : `${patch}\n`
+    await this.run(['apply', '--index', '--recount', '--whitespace=nowarn', '-'], { input })
   }
 
-  async commitAll(message: string): Promise<void> {
-    await this.run(['add', '--all'])
+  /**
+   * Commits exactly the candidate, which `apply --index` staged. Staging the
+   * whole tree would also commit whatever install and tests wrote that the repo
+   * does not ignore (coverage, reports, build output) into the merged PR.
+   */
+  async commitCandidate(message: string): Promise<void> {
     await this.run(['commit', '--quiet', '--message', message])
+  }
+
+  /**
+   * Reads a file from the checkout for the prompt. `fromLog` is a path as a CI
+   * log prints it, often absolute on the runner, so the longest suffix that
+   * names a file here wins. Nothing outside the worktree or under `.git` is
+   * readable, symlinks included. Null when no suffix matches.
+   */
+  async readFile(fromLog: string): Promise<{ path: string; text: string } | null> {
+    const segments = fromLog
+      .replace(/\\/g, '/')
+      .split('/')
+      .filter((segment) => segment !== '' && segment !== '.')
+    if (segments.includes('..')) return null
+
+    const root = await fs.realpath(this.options.dir)
+    for (let start = 0; start < segments.length; start += 1) {
+      const relative = segments.slice(start).join('/')
+      if (relative === '.git' || relative.startsWith('.git/')) continue
+
+      const resolved = await fs.realpath(path.join(root, relative)).catch(() => null)
+      if (!resolved || !resolved.startsWith(`${root}${path.sep}`)) continue
+      if (path.relative(root, resolved).split(path.sep)[0] === '.git') continue
+
+      const stats = await fs.stat(resolved)
+      if (!stats.isFile()) continue
+
+      const handle = await fs.open(resolved, 'r')
+      try {
+        const buffer = Buffer.alloc(Math.min(stats.size, MAX_READ_BYTES))
+        const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0)
+        return { path: relative, text: buffer.subarray(0, bytesRead).toString('utf8') }
+      } finally {
+        await handle.close()
+      }
+    }
+
+    return null
   }
 
   /** Always `HEAD:refs/heads/adamant/{run_id}`, never a ref the model chose. */

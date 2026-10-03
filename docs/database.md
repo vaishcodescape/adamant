@@ -299,7 +299,7 @@ Index: `repo_bindings_installation_id_idx` on `installation_id`.
 | `created_at`        | timestamptz  | not null, default now() **(exec)**                              |
 | `updated_at`        | timestamptz  | not null, default now() **(exec)**                              |
 
-`idempotency_key` is `webhook:{delivery_id}` or the client `Idempotency-Key`.
+`idempotency_key` is `workflow_run:{head_sha}` or the client `Idempotency-Key`.
 
 `version` is for later HITL (`UPDATE … WHERE version = $2` → 409). Phase 1
 does not need it to merge.

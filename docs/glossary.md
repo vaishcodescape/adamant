@@ -46,7 +46,7 @@ word does not make sense.
 | **Installation**       | A GitHub App installed on an account or org. It, not a user, is what grants Adamant access to a repo.                                         |
 | **Installation token** | A short-lived GitHub token minted from the installation. Created per call and thrown away.                                                    |
 | **Delivery ID**        | GitHub's `X-GitHub-Delivery` header, unique per webhook delivery. Our deduplication key.                                                      |
-| **Idempotency key**    | What stops one event creating two runs: `webhook:{delivery_id}`, or the client's `Idempotency-Key` header.                                    |
+| **Idempotency key**    | What stops one event creating two runs: `workflow_run:{head_sha}`, or the client's `Idempotency-Key` header.                                  |
 | **Seeded user**        | The placeholder row in `users` that owns Phase 1 runs, standing in for a real account until GitHub OAuth exists.                              |
 
 ## Process

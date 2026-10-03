@@ -45,7 +45,10 @@ export const repositories = pgTable(
   },
   (table) => [
     uniqueIndex('repositories_github_repo_id_uidx').on(table.githubRepoId),
-    uniqueIndex('repositories_owner_name_uidx').on(table.owner, table.name),
+    // Not unique: a name is only unique on GitHub at one moment. Delete and
+    // recreate a repo, or rename one into a freed name, and a unique index
+    // here failed every webhook for the new repository.
+    index('repositories_owner_name_idx').on(table.owner, table.name),
     index('repositories_installation_id_idx').on(table.installationId),
   ],
 )

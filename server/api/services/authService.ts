@@ -19,6 +19,10 @@ export type AuthenticatedSession = {
   userId: string
 }
 
+// `last_used_at` is for spotting stale sessions, not an access log. Writing it
+// on every request turned each authenticated read into a row update.
+const LAST_USED_RESOLUTION_MS = 5 * 60 * 1000
+
 function hashSessionToken(token: string): string {
   return createHash('sha256').update(token).digest('hex')
 }
@@ -245,6 +249,7 @@ export async function authenticateSession(
       userId: sessions.userId,
       revokedAt: sessions.revokedAt,
       expiresAt: sessions.expiresAt,
+      lastUsedAt: sessions.lastUsedAt,
     })
     .from(sessions)
     .where(eq(sessions.tokenHash, tokenHash))
@@ -264,12 +269,15 @@ export async function authenticateSession(
     return null
   }
 
-  await db
-    .update(sessions)
-    .set({
-      lastUsedAt: new Date(),
-    })
-    .where(eq(sessions.id, session.sessionId))
+  const lastUsed = session.lastUsedAt ? new Date(session.lastUsedAt).getTime() : 0
+  if (Date.now() - lastUsed >= LAST_USED_RESOLUTION_MS) {
+    await db
+      .update(sessions)
+      .set({
+        lastUsedAt: new Date(),
+      })
+      .where(eq(sessions.id, session.sessionId))
+  }
 
   return {
     sessionId: session.sessionId,

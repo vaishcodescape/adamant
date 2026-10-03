@@ -7,24 +7,28 @@ import {
   type LlmProvider,
   type PreviousAttempt,
   type SandboxProvider,
+  type SourceExcerpt,
 } from './deps.ts'
 import { type RunRecorder } from './recorder.ts'
-import { describeFailure } from './triage.ts'
+import { describeSources } from './sources.ts'
+import { describeFailure, type FailureContext } from './triage.ts'
 
 /**
  * One model for every heal step so prompt caching can hit. Diagnose and plan
  * sort the failure (low effort). The patch writes the diff (high effort).
- * The system text stays identical across calls; logs and run-specific text
- * go in the user message, after that prefix.
+ * The system text stays identical across calls. Every user message opens with
+ * the same failure and source block and puts its own task last, so the three
+ * calls of an attempt share that whole block as a cached prefix.
  */
 const DEFAULT_MODEL = 'gpt-6'
 const MAX_VARIABLE_CHARS = 24_000
 
 const HEAL_INSTRUCTIONS_PROMPT = [
   'You are the Adamant heal agent for a failing GitHub Actions check.',
-  'Use only the failure text, diagnosis, or plan in the user message.',
+  'Use only the failure text, source, diagnosis, or plan in the user message.',
   'Never repeat secrets, tokens, credentials, or environment values.',
   'A patch is a unified diff that edits the existing files. Do not rewrite a whole file.',
+  'Context and removed lines in a diff must match the source shown, character for character.',
   'When an earlier candidate is shown, it already failed: do not repeat it.',
 ].join('\n')
 
@@ -84,6 +88,11 @@ function describeAttempt(attempt: PreviousAttempt | null): string {
   ].join('\n')
 }
 
+/** The same text for every step of a run, so it is the cached part of each prompt. */
+function sharedContext(failure: FailureContext, sources: readonly SourceExcerpt[]): string {
+  return [describeFailure(failure), '', describeSources(sources)].join('\n')
+}
+
 async function complete(
   client: OpenAiResponses,
   model: string,
@@ -110,43 +119,41 @@ export function createOpenAiLlm(options?: OpenAiLlmOptions): LlmProvider {
   const client = options?.client ?? responsesClient(requireApiKey(options?.apiKey))
 
   return {
-    diagnose({ failure, previousAttempt }) {
+    diagnose({ failure, sources, previousAttempt }) {
       return complete(
         client,
         model,
         'low',
         [
-          'Sort this failure. Name the cause, the file and line when present, and the tests involved.',
-          '',
-          describeFailure(failure),
+          sharedContext(failure, sources),
           describeAttempt(previousAttempt),
+          '',
+          'Task: sort this failure. Name the cause, the file and line when present, and the tests involved.',
         ].join('\n'),
       )
     },
-    plan({ failure, diagnostics }) {
+    plan({ failure, sources, diagnostics }) {
       return complete(
         client,
         model,
         'low',
         [
-          'Write a short repair plan from this diagnosis. Name the files to change and why.',
-          '',
-          describeFailure(failure),
+          sharedContext(failure, sources),
           '',
           'Diagnosis:',
           tail(diagnostics),
+          '',
+          'Task: write a short repair plan from this diagnosis. Name the files to change and why.',
         ].join('\n'),
       )
     },
-    patch({ failure, diagnostics, plan, previousAttempt }) {
+    patch({ failure, sources, diagnostics, plan, previousAttempt }) {
       return complete(
         client,
         model,
         'high',
         [
-          'Write the unified diff for this plan. Return the diff only, with no explanation.',
-          '',
-          describeFailure(failure),
+          sharedContext(failure, sources),
           '',
           'Diagnosis:',
           tail(diagnostics),
@@ -154,6 +161,8 @@ export function createOpenAiLlm(options?: OpenAiLlmOptions): LlmProvider {
           'Plan:',
           tail(plan),
           describeAttempt(previousAttempt),
+          '',
+          'Task: write the unified diff for this plan against the source shown. Return the diff only, with no explanation.',
         ].join('\n'),
       )
     },

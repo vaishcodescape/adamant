@@ -83,6 +83,23 @@ function findLocation(lines: readonly string[], from: number): string | null {
   return null
 }
 
+/** Distinct `file:line` pairs in order of appearance, at most `max`, none in node_modules. */
+export function findLocations(text: string, max: number): { file: string; line: number }[] {
+  const found = new Map<string, { file: string; line: number }>()
+  for (const line of text.split(/\r?\n/)) {
+    for (const pattern of LOCATION_PATTERNS) {
+      const match = pattern.exec(line)
+      const file = match?.[1]
+      const lineNumber = Number(match?.[2])
+      if (!file || !Number.isInteger(lineNumber) || file.includes('node_modules/')) continue
+      if (!found.has(file)) found.set(file, { file, line: lineNumber })
+      break
+    }
+    if (found.size >= max) break
+  }
+  return [...found.values()]
+}
+
 function findFailingTests(lines: readonly string[]): string[] {
   const names = new Set<string>()
   for (const line of lines) {

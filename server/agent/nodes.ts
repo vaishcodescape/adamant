@@ -5,6 +5,8 @@ import { SecureGitClient } from './tools.ts'
 import { parseFailure } from './triage.ts'
 import { buildCommitMessage, buildPrBody, buildPrTitle } from './pr.ts'
 import { redactText } from './recorder.ts'
+import { readSources } from './sources.ts'
+import { normalizePatch } from './patch.ts'
 
 const candidateHash = (patch: string) => createHash('sha256').update(patch).digest('hex')
 
@@ -36,13 +38,15 @@ export const createNodes = (deps: AgentDependencies) => {
 
       // Parsed here, once. Retries reuse it instead of re-downloading the log.
       const failure = parseFailure(await git.getFailureLogs())
+      const sources = await readSources((path) => git.readFile(path), failure)
       await deps.recorder.audit('run.retrieved', {
         baseSha: state.baseSha,
         location: failure.location,
         failingTests: failure.failingTests,
+        sources: sources.map((source) => source.path),
       })
 
-      return { failure, status: 'diagnosing' }
+      return { failure, sources, status: 'diagnosing' }
     },
 
     diagnoseNode: async (state: AgentState): Promise<Partial<AgentState>> => {
@@ -52,6 +56,7 @@ export const createNodes = (deps: AgentDependencies) => {
 
       const diagnostics = await deps.llm.diagnose({
         failure: state.failure,
+        sources: state.sources,
         previousAttempt: previousAttempt(state),
       })
 
@@ -63,7 +68,11 @@ export const createNodes = (deps: AgentDependencies) => {
         throw new Error('Diagnostics missing before planning phase')
       }
 
-      const plan = await deps.llm.plan({ failure: state.failure, diagnostics: state.diagnostics })
+      const plan = await deps.llm.plan({
+        failure: state.failure,
+        sources: state.sources,
+        diagnostics: state.diagnostics,
+      })
 
       return { plan, status: 'patching' }
     },
@@ -78,12 +87,15 @@ export const createNodes = (deps: AgentDependencies) => {
         throw new Error('Plan missing before patching phase')
       }
 
-      const patch = await deps.llm.patch({
-        failure: state.failure,
-        diagnostics: state.diagnostics,
-        plan: state.plan,
-        previousAttempt: previousAttempt(state),
-      })
+      const patch = normalizePatch(
+        await deps.llm.patch({
+          failure: state.failure,
+          sources: state.sources,
+          diagnostics: state.diagnostics,
+          plan: state.plan,
+          previousAttempt: previousAttempt(state),
+        }),
+      )
 
       const attemptNumber = state.attemptNumber + 1
       const hash = candidateHash(patch)

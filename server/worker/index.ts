@@ -1,3 +1,6 @@
+import { constants as fsConstants } from 'node:fs'
+import * as fs from 'node:fs/promises'
+import * as os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { type BaseCheckpointSaver } from '@langchain/langgraph-checkpoint'
@@ -45,6 +48,27 @@ export type GraphStepDependencies = {
 
 const OAUTH_STATE_BATCH_SIZE = 1_000
 const OAUTH_STATE_MAX_BATCHES = 50
+/**
+ * Heals in flight per process. A heal is mostly waiting (model calls, a
+ * sandbox container with its own CPU and memory caps), so one at a time left a
+ * single slow sandbox blocking every other red build.
+ */
+const DEFAULT_CONCURRENCY = 2
+
+export function readConcurrency(env = process.env): number {
+  const value = Number(env.ADAMANT_WORKER_CONCURRENCY ?? DEFAULT_CONCURRENCY)
+  return Number.isInteger(value) && value > 0 ? value : DEFAULT_CONCURRENCY
+}
+
+/**
+ * Where run worktrees live. When the worker itself runs in a container, the
+ * sandbox is started by the host's Docker daemon, which resolves bind-mount
+ * sources on the host, so this path must be mounted at the same path on both
+ * sides (see docker-compose.yml).
+ */
+export function readWorkspaceRoot(env = process.env): string {
+  return env.ADAMANT_WORKSPACE_ROOT ?? path.join(os.tmpdir(), 'adamant-workspaces')
+}
 
 export async function drainExpiredOAuthStates(deleteBatch: () => Promise<number>): Promise<number> {
   let deleted = 0
@@ -143,20 +167,28 @@ async function main() {
     throw new Error('DATABASE_URL is required to start @adamant/worker')
   }
 
-  const db = createWorkerDb(connectionString)
+  const concurrency = readConcurrency()
+  const workspaceRoot = readWorkspaceRoot()
+  // Fail at boot, not on the first heal, when the worktree root is unusable.
+  await fs.mkdir(workspaceRoot, { recursive: true })
+  await fs.access(workspaceRoot, fsConstants.W_OK)
+
+  // graphile-worker holds one connection for LISTEN and one per job in flight;
+  // each heal also uses the pool for its recorder and checkpoints.
+  const db = createWorkerDb(connectionString, concurrency * 2 + 4)
   const store = createRunStore(db)
-  const checkpointer = PostgresSaver.fromConnString(connectionString)
+  const checkpointer = new PostgresSaver(db.$client)
   await checkpointer.setup()
 
   const deps: GraphStepDependencies = {
     ...store,
-    createTools: (healRun) => createRunProviders({ db, run: healRun }),
+    createTools: (healRun) => createRunProviders({ db, run: healRun, workspaceRoot }),
     checkpointer,
   }
 
   const runner = await run({
-    connectionString,
-    concurrency: 1,
+    pgPool: db.$client,
+    concurrency,
     crontab: '0 * * * * cleanup_oauth_states',
     taskList: {
       graph_step: async (payload, helpers) => {
@@ -169,7 +201,7 @@ async function main() {
     },
   })
 
-  console.log('@adamant/worker connected and waiting for jobs')
+  console.log(`@adamant/worker connected and waiting for jobs (concurrency ${concurrency})`)
 
   await runner.promise
 }

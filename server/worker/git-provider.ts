@@ -41,7 +41,7 @@ export function createGitHubGitProvider(
     },
 
     async commit(message) {
-      await workspace.commitAll(message)
+      await workspace.commitCandidate(message)
     },
 
     async push(branch) {
@@ -58,6 +58,10 @@ export function createGitHubGitProvider(
         prNumber,
         commitTitle: `Adamant run ${context.runId} (#${prNumber})`,
       })
+    },
+
+    async readFile(fromLog) {
+      return workspace.readFile(fromLog)
     },
 
     async getFailureLogs() {

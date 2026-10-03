@@ -21,6 +21,19 @@ export interface GitProvider {
   mergePr(prNumber: number): Promise<void>
   /** Logs of the failed jobs only, never the whole workflow run. */
   getFailureLogs(): Promise<string>
+  /**
+   * A file from the run's checkout, located by a path as a CI log prints it.
+   * Confined to the worktree; null when nothing there matches.
+   */
+  readFile(fromLog: string): Promise<{ path: string; text: string } | null>
+}
+
+/** A window of a file the failure points at, so the model edits what is there. */
+export interface SourceExcerpt {
+  readonly path: string
+  /** 1-based line number of the first line in `text`. */
+  readonly startLine: number
+  readonly text: string
 }
 
 export interface SandboxOutcome {
@@ -46,11 +59,17 @@ export interface PreviousAttempt {
 export interface LlmProvider {
   diagnose(input: {
     failure: FailureContext
+    sources: readonly SourceExcerpt[]
     previousAttempt: PreviousAttempt | null
   }): Promise<string>
-  plan(input: { failure: FailureContext; diagnostics: string }): Promise<string>
+  plan(input: {
+    failure: FailureContext
+    sources: readonly SourceExcerpt[]
+    diagnostics: string
+  }): Promise<string>
   patch(input: {
     failure: FailureContext
+    sources: readonly SourceExcerpt[]
     diagnostics: string
     plan: string
     previousAttempt: PreviousAttempt | null

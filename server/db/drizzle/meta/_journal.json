@@ -29,6 +29,13 @@
       "when": 1790573575380,
       "tag": "0003_thick_vin_gonzales",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791054263885,
+      "tag": "0004_activity_and_repository_indexes",
+      "breakpoints": true
     }
   ]
 }

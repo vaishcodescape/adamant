@@ -11,6 +11,8 @@ import { type OpenAiResponses } from '../../server/agent/openai.ts'
 import {
   drainExpiredOAuthStates,
   graphStep,
+  readConcurrency,
+  readWorkspaceRoot,
   type GraphStepDependencies,
 } from '../../server/worker/index.ts'
 import { type HealRun } from '../../server/worker/runs.ts'
@@ -26,6 +28,7 @@ const git = {
   openPr: async () => ({ number: 1, url: 'https://github.com/acme/demo/pull/1' }),
   mergePr: async () => {},
   getFailureLogs: async () => 'Error: boom at src/app.ts:10',
+  readFile: async () => null,
 } as GitProvider
 
 const sandbox = {
@@ -307,6 +310,22 @@ describe('worker', () => {
 
     assert.equal(calls, 50)
     assert.equal(deleted, 50_000)
+  })
+
+  it('runs more than one heal at a time unless told otherwise', () => {
+    assert.equal(readConcurrency({}), 2)
+    assert.equal(readConcurrency({ ADAMANT_WORKER_CONCURRENCY: '6' }), 6)
+    for (const bad of ['0', '-1', '1.5', 'many']) {
+      assert.equal(readConcurrency({ ADAMANT_WORKER_CONCURRENCY: bad }), 2, bad)
+    }
+  })
+
+  it('puts worktrees where the sandbox host can mount them when configured', () => {
+    assert.equal(
+      readWorkspaceRoot({ ADAMANT_WORKSPACE_ROOT: '/var/lib/adamant' }),
+      '/var/lib/adamant',
+    )
+    assert.match(readWorkspaceRoot({}), /adamant-workspaces$/)
   })
 
   it('refuses to start without DATABASE_URL', async () => {

@@ -31,6 +31,8 @@ export const webhookDeliveries = pgTable(
   (table) => [
     uniqueIndex('webhook_deliveries_delivery_id_uidx').on(table.githubDeliveryId),
     index('webhook_deliveries_repository_id_idx').on(table.repositoryId),
+    // /activity replays and tails deliveries newest-first by arrival time.
+    index('webhook_deliveries_received_at_idx').on(table.receivedAt),
     check(
       'webhook_deliveries_processing_status_check',
       sql`${table.processingStatus} in ('received','processed','ignored','failed')`,

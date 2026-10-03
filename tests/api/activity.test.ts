@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, describe, it } from 'node:test'
+import { createActivityRoute } from '../../server/api/routes/activity.ts'
 import { createServerApp } from '../../server/api/server.ts'
 import { createActivityService } from '../../server/api/services/activityService.ts'
-import type { Db } from '../../server/db/client.ts'
+import { webhookDeliveries, type Db } from '../../server/db/client.ts'
 
 const SESSION = 'test-session-secret'
 const SEED_USER_ID = '00000000-0000-0000-0000-000000000001'
@@ -393,6 +394,114 @@ describe('Activity SSE Stream', () => {
       controller.abort()
       await waitTick()
       assert.equal(customService.subscriberCount(), 0)
+    }
+  })
+})
+
+describe('Activity from the database', () => {
+  type Row = Record<string, unknown>
+
+  /** Answers the activity reads; ignores filters, so every poll sees every row. */
+  function fakeDb(tables: { deliveries: Row[]; audits: Row[] }) {
+    const reads = { count: 0, limits: [] as number[] }
+    const database = {
+      select: () => ({
+        from: (table: unknown) => {
+          const rows = table === webhookDeliveries ? tables.deliveries : tables.audits
+          const chain = {
+            where: () => chain,
+            orderBy: () => chain,
+            limit: async (limit: number) => {
+              reads.count += 1
+              reads.limits.push(limit)
+              return [...rows]
+            },
+          }
+          return chain
+        },
+      }),
+    } as unknown as Db
+    return { database, reads }
+  }
+
+  const audit = (id: string): Row => ({
+    id,
+    runId: 'run-1',
+    eventType: 'run.merged',
+    payload: { prNumber: 7 },
+    actorUserId: null,
+    createdAt: new Date(),
+  })
+
+  it('delivers rows another process wrote to connected clients, once each', async () => {
+    const tables = { deliveries: [] as Row[], audits: [] as Row[] }
+    const { database } = fakeDb(tables)
+    const service = createActivityService({ database, pollIntervalMs: 5 })
+    const received: string[] = []
+    const unsubscribe = service.subscribe((event) => received.push(event.id))
+
+    try {
+      tables.audits.push(audit('a1'))
+      await waitTick(40)
+      tables.deliveries.push({
+        id: 'd1',
+        githubDeliveryId: 'gh-1',
+        eventType: 'workflow_run',
+        repositoryId: null,
+        installationId: null,
+        processingStatus: 'processed',
+        receivedAt: new Date(),
+      })
+      await waitTick(40)
+
+      assert.deepEqual(received, ['audit_a1', 'wh_d1'])
+    } finally {
+      unsubscribe()
+    }
+  })
+
+  it('stops reading the database when the last client leaves', async () => {
+    const { database, reads } = fakeDb({ deliveries: [], audits: [] })
+    const service = createActivityService({ database, pollIntervalMs: 5 })
+
+    const unsubscribe = service.subscribe(() => {})
+    await waitTick(30)
+    unsubscribe()
+    await waitTick(10)
+    const afterLeave = reads.count
+    await waitTick(30)
+
+    assert.ok(afterLeave > 0, 'polled while a client was connected')
+    assert.equal(reads.count, afterLeave)
+  })
+
+  it('bounds the history it reads on connect', async () => {
+    const { database, reads } = fakeDb({ deliveries: [], audits: [audit('a1')] })
+    const service = createActivityService({ database, historyLimit: 50 })
+
+    const history = await service.getHistory()
+
+    assert.deepEqual(reads.limits, [50, 50])
+    assert.deepEqual(
+      history.map((event) => event.id),
+      ['audit_a1'],
+    )
+  })
+
+  it('keeps an idle stream open with heartbeat comments', async () => {
+    const app = createActivityRoute(createActivityService(), { heartbeatMs: 5 })
+    const controller = new AbortController()
+    // The heartbeat is unref'd so it never holds a process open; in production
+    // the HTTP server does. Here nothing else would, so hold the loop meanwhile.
+    const keepAlive = setTimeout(() => {}, 5_000)
+    try {
+      const res = await app.request('/', { signal: controller.signal })
+      assert.ok(res.body)
+      const frame = await readStreamFrame(res.body)
+      assert.match(frame, /^: ping/m)
+    } finally {
+      clearTimeout(keepAlive)
+      controller.abort()
     }
   })
 })

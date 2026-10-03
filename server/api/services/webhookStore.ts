@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import {
   auditEvents,
   githubInstallations,
@@ -8,6 +8,7 @@ import {
   webhookDeliveries,
   type Db,
 } from '../../db/client.ts'
+import { enqueueGraphStep } from './jobs.ts'
 
 /**
  * Everything the webhook handler writes. The Postgres implementation is what
@@ -155,10 +156,7 @@ export function createPostgresWebhookStore(db: Db): WebhookStore {
 
         const runId = rows[0]?.id
         if (!runId) return null
-        await tx.execute(sql`select graphile_worker.add_job(
-          'graph_step', json_build_object('runId', ${runId})::json,
-          job_key := ${runId}, max_attempts := 3
-        )`)
+        await enqueueGraphStep(tx, runId)
         return runId
       })
     },

@@ -54,7 +54,7 @@ only for developing the backend.
 
 | Event                          | We do                                                                                       |
 | ------------------------------ | ------------------------------------------------------------------------------------------- |
-| `workflow_run` failed          | Insert `queued` run, enqueue `graph_step`                                                   |
+| `workflow_run` failed          | On the default branch of the bound repo only: insert `queued` run, enqueue `graph_step`     |
 | `pull_request` closed + merged | If `pr_number` matches a run → `merged`. Else keep the delivery (`run_id` null) for the CLI |
 | `ping` / `installation`        | Store delivery; upsert `installations` / `repo_bindings`                                    |
 
@@ -109,6 +109,13 @@ Webhook: known `installation_id`, bind the repo, insert
 `webhook_deliveries` **before** the run. Duplicate `delivery_id` → ACK, no
 second run. Failed `workflow_run` → `queued` run + enqueue `graph_step`.
 Use the seed user as `actor_user_id` until OAuth exists.
+
+Only a failure whose `head_branch` is the repo's default branch and whose
+`head_repository` is the bound repo starts a heal. The heal PR is built on
+`head_sha` and merged into the default branch, so a fork PR, a feature
+branch, or an `adamant/*` PR would merge someone else's commits with the fix
+(or heal itself in a loop). One heal per commit: each failing workflow sends
+its own delivery, and the heal already reads every failed job at that SHA.
 
 HITL (`POST /runs/:id/hitl`) is later. Phase 1 merges without it.
 
@@ -175,6 +182,12 @@ Per-run worktree. Credentials through a one-shot `GIT_ASKPASS`, then discarded.
 
 Allowed: `fetch`, `checkout`, `switch -c`, `status`, `diff`, `log`, `show`,
 `rev-parse`, `add`, `commit`, `push` (agent branch only).
+
+`git_read_file` reads a file from the run's worktree so the model sees the
+code a failure points at. Read-only, confined to the worktree (no `..`, no
+`.git`, no symlink out), bounded, and logged with its path but not its
+contents. The commit holds only what `apply --index` staged, never files the
+sandbox wrote.
 
 Denied: push to the default branch, `push --force`, `reset --hard` of
 protected refs, rebase onto default, credential helpers, untrusted
@@ -341,7 +354,7 @@ erDiagram
 
 - Queue: graphile-worker (`graph_step` / `sandbox_exec`, payload `{ runId }`)
 - Checkpoints: LangGraph library tables, `thread_id = run_id`
-- `runs.idempotency_key`: `webhook:{delivery_id}` or client `Idempotency-Key`
+- `runs.idempotency_key`: `workflow_run:{head_sha}` or client `Idempotency-Key`
 - Redact tool args before persist (no tokens)
 
 ## Heal path

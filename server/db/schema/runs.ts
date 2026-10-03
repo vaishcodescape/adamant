@@ -59,6 +59,8 @@ export const runs = pgTable(
       .on(table.repositoryId, table.idempotencyKey)
       .where(sql`${table.idempotencyKey} is not null`),
     index('runs_repository_created_idx').on(table.repositoryId, table.createdAt),
+    // GET /runs: the newest runs a user can see, across repositories.
+    index('runs_created_at_idx').on(table.createdAt),
     index('runs_pending_status_idx')
       .on(table.status)
       .where(sql`${table.status} in ('queued','running')`),

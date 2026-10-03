@@ -6,14 +6,23 @@ import {
   type ActivityService,
 } from '../services/activityService.ts'
 
+// Proxies and load balancers close a quiet stream after about a minute, and
+// every reconnect replays history. A comment frame keeps the stream open.
+const DEFAULT_HEARTBEAT_MS = 20_000
+
+export type ActivityRouteOptions = {
+  heartbeatMs?: number
+}
+
 /**
  * Creates the /activity router for Server-Sent Events.
  * Serializes history replay and live pub/sub delivery through a single output queue
  * so clients receive chronological, deduplicated activity with graceful abort cleanup.
  */
-export function createActivityRoute(service?: ActivityService) {
+export function createActivityRoute(service?: ActivityService, options: ActivityRouteOptions = {}) {
   const activity = new Hono()
   const activityService = service ?? createActivityService()
+  const heartbeatMs = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS
 
   activity.get('/', async (c) => {
     const lastEventId = c.req.header('last-event-id') ?? c.req.query('lastEventId') ?? null
@@ -27,11 +36,13 @@ export function createActivityRoute(service?: ActivityService) {
       let cleanedUp = false
       let unsubscribe = () => {}
       let resolveStreamPromise: (() => void) | null = null
+      let heartbeat: ReturnType<typeof setInterval> | undefined
 
       const cleanup = () => {
         if (cleanedUp) return
         cleanedUp = true
         active = false
+        clearInterval(heartbeat)
         unsubscribe()
         if (resolveStreamPromise) {
           resolveStreamPromise()
@@ -115,6 +126,10 @@ export function createActivityRoute(service?: ActivityService) {
 
       if (active) {
         await flushQueue()
+        heartbeat = setInterval(() => {
+          stream.write(': ping\n\n').catch(() => cleanup())
+        }, heartbeatMs)
+        heartbeat.unref()
       }
 
       await new Promise<void>((resolve) => {

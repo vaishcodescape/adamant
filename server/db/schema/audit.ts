@@ -63,5 +63,9 @@ export const auditEvents = pgTable(
     actorUserId: uuid('actor_user_id').references(() => users.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index('audit_events_run_id_idx').on(table.runId, table.createdAt)],
+  (table) => [
+    index('audit_events_run_id_idx').on(table.runId, table.createdAt),
+    // /activity reads across runs by time; the run_id index cannot serve that.
+    index('audit_events_created_at_idx').on(table.createdAt),
+  ],
 )
