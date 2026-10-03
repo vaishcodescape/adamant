@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { bodyLimit } from 'hono/body-limit'
 import * as crypto from 'crypto'
 import {
   DuplicateDeliveryError,
@@ -20,9 +21,15 @@ function verifySignature(signature: string | null, rawBody: string, secret: stri
   }
 }
 
+// GitHub caps webhook payloads at 25 MB. The body is buffered before the HMAC
+// can be checked, so anything larger is refused unread.
+const MAX_WEBHOOK_BYTES = 25 * 1024 * 1024
+
 /** `service` is injectable so tests can drive the handler without a database. */
 export function createGithubWebhookRoute(service?: WebhookService) {
   const github = new Hono()
+
+  github.use('/', bodyLimit({ maxSize: MAX_WEBHOOK_BYTES }))
 
   github.post('/', async (c) => {
     const secret = process.env.GITHUB_WEBHOOK_SECRET

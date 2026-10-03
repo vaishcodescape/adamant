@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+import { Hono, type MiddlewareHandler } from 'hono'
 
 import { createDb, type Db } from '../db/client.ts'
 import { createApp, resourceNames } from './app.ts'
@@ -8,15 +8,19 @@ import { createAuthRoute, type OAuthConfig } from './routes/auth.ts'
 import { createRunsRoute } from './routes/runs.ts'
 import { createActivityService, type ActivityService } from './services/activityService.ts'
 import { createPostgresRunApiStore, type RunApiStore } from './services/runStore.ts'
-import { github } from './webhooks/github.ts'
+import { createWebhookService } from './services/webhookService.ts'
+import { createPostgresWebhookStore } from './services/webhookStore.ts'
+import { createGithubWebhookRoute } from './webhooks/github.ts'
 
 /**
- * Schema CRUD serves /runs and every other resource table. The dedicated runs
- * router is a CLI-shaped stub and would hide those handlers, so auth is
- * applied here per resource (looping resourceNames so a new resource cannot
- * ship unauthenticated by omission) and that router stays available for
- * direct tests. GitHub calls /webhooks/github with its own signature, and
- * /health stays open for infra checks.
+ * Auth is applied here per resource (looping resourceNames so a new resource
+ * cannot ship unauthenticated by omission). GitHub calls /webhooks/github with
+ * its own signature, and /health stays open for infra checks.
+ *
+ * With a database, /runs is the Postgres-backed router and the in-memory
+ * schema CRUD is not mounted: its rows never reach Postgres, its maps grow
+ * without bound, and its POST /audit-events would publish forged events to
+ * every `adamant watch`. Without a database the CRUD is the local stand-in.
  */
 export type ServerOptions = {
   database?: Db
@@ -43,6 +47,10 @@ function readOAuthConfig(): OAuthConfig {
   }
 }
 
+const alreadyAuthenticated: MiddlewareHandler = async (_c, next) => {
+  await next()
+}
+
 export function createServerApp(runStore?: RunApiStore, options: ServerOptions = {}) {
   const app = new Hono()
   const database =
@@ -57,16 +65,15 @@ export function createServerApp(runStore?: RunApiStore, options: ServerOptions =
       ...(database ? { database } : {}),
     })
 
-  for (const name of resourceNames) {
+  for (const name of [...resourceNames, 'activity']) {
     app.use(`/${name}`, authMiddleware)
     app.use(`/${name}/*`, authMiddleware)
   }
 
-  app.use('/activity', authMiddleware)
-  app.use('/activity/*', authMiddleware)
-
   if (resolvedRunStore) {
-    app.route('/runs', createRunsRoute(resolvedRunStore, authMiddleware))
+    // The loop above already authenticated /runs; a second pass would repeat
+    // the session lookup on every request.
+    app.route('/runs', createRunsRoute(resolvedRunStore, alreadyAuthenticated))
   }
 
   if (database) {
@@ -76,11 +83,18 @@ export function createServerApp(runStore?: RunApiStore, options: ServerOptions =
         ...(options.fetch ? { fetch: options.fetch } : {}),
       }),
     )
+    app.get('/health', (c) => c.json({ status: 'ok' }))
+  } else {
+    createApp(undefined, app, resolvedActivityService)
   }
 
-  createApp(undefined, app, resolvedActivityService)
-
-  app.route('/webhooks/github', github)
+  // One pool per process: the webhook store reuses the server's database.
+  app.route(
+    '/webhooks/github',
+    createGithubWebhookRoute(
+      database ? createWebhookService({ store: createPostgresWebhookStore(database) }) : undefined,
+    ),
+  )
   app.route('/activity', createActivityRoute(resolvedActivityService))
 
   return app
