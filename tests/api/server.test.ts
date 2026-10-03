@@ -41,14 +41,14 @@ describe('composed API', () => {
 
     const blocked = await app.request('/runs', {
       method: 'POST',
-      body: JSON.stringify({ repositoryId: 'repo-1', sourceSha: 'abc123' }),
+      body: JSON.stringify({ repositoryId: 'repo-1', sourceSha: 'a'.repeat(40) }),
       headers: { 'content-type': 'application/json', 'idempotency-key': 'key-1' },
     })
     assert.equal(blocked.status, 401)
 
     const created = await app.request('/runs', {
       method: 'POST',
-      body: JSON.stringify({ repositoryId: 'repo-1', sourceSha: 'abc123' }),
+      body: JSON.stringify({ repositoryId: 'repo-1', sourceSha: 'a'.repeat(40) }),
       headers: {
         'content-type': 'application/json',
         'idempotency-key': 'key-1',
